@@ -1,6 +1,6 @@
 # claude-desktop-integration
 
-Run **Claude Desktop** (Cowork / Chat / Code sessions) on DeepSeek, through the same
+Run **Claude Desktop** (Cowork / Chat / Code sessions) on Opus 5.5, through the same
 LiteLLM proxy idea as `zim-claude` — but wired up the way Claude Desktop actually
 supports third-party models.
 
@@ -11,7 +11,7 @@ Claude Desktop (Cowork / Chat / Code)
 LiteLLM :4002   (litellm-config.desktop.yaml)
      |  OpenAI-style
      v
-Token Juice  ->  DeepSeek-V4.1-Flash
+Token Juice  ->  Opus 5.5
 ```
 
 This is **separate from the CLI proxy** on `:4000`, so `zim-claude` keeps working
@@ -30,7 +30,7 @@ Claude Desktop also imposes two rules the proxy has to obey:
 1. **Model names must look Anthropic-shaped.** Any model whose name lacks `claude` /
    `anthropic` is dropped from the picker:
    *`inferenceModels: "X" is not an Anthropic model and was removed from the list`*.
-   So DeepSeek is exposed as `claude-opus-5-5` (an Opus-tier name).
+   So Opus 5.5 is exposed as `claude-opus-5-5` (an Opus-tier name).
 2. **Anthropic-only fields must be tolerated.** Cowork/Code send `cache_control`,
    `tool_reference`, beta headers. The upstream is OpenAI-style, so the config sets
    `drop_params: true` to avoid HTTP 400s.
@@ -64,7 +64,7 @@ Then, in Claude Desktop:
 4. **Apply Changes** (older builds: *Apply locally*), then **restart Claude Desktop**.
 
 The picker now lists `claude-opus-5-5`, and every Cowork,
-Chat and Code model call goes to LiteLLM → Token Juice → DeepSeek.
+Chat and Code model call goes to LiteLLM → Token Juice → Opus 5.5.
 
 ### No-click alternative (managed config)
 
@@ -133,7 +133,7 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
   upstream credential lives in `litellm-config.desktop.yaml` (via `ANTHROPIC_AUTH_TOKEN`
   from the profile), so LiteLLM reaches Token Juice on its own.
 - **Anthropic-only capabilities won't apply** — 1M context, prompt-cache reuse and some
-  beta headers depend on an Anthropic upstream; DeepSeek won't honor them.
+  beta headers depend on an Anthropic upstream; Opus 5.5 won't honor them.
 - Same token as `zim-claude`; rotate at Token Juice if it leaks, then restart both
   proxies.
 
