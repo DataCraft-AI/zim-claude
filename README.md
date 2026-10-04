@@ -16,10 +16,20 @@ zim-claude mcp add demo -- npx -y some-mcp  # arguments pass through untouched
 
 ## Install
 
+**Linux / macOS / WSL:**
+
 ```bash
 git clone <this repo> zim-claude
 cd zim-claude
 ./install.sh
+```
+
+**Windows** — see [Windows](#windows) below for the full picture:
+
+```bat
+git clone <this repo> zim-claude
+cd zim-claude\windows
+win-install.bat
 ```
 
 That's it. Open a new terminal and run `zim-claude`.
@@ -97,6 +107,90 @@ anything already up to date.
 
 `--uninstall` removes the files it installed, but **only if you haven't edited them**,
 and never touches your env profile or `~/litellm-config.yaml`.
+
+## Windows
+
+Windows gets its own installer under `windows/`. It is **native** — no WSL, no Git Bash,
+no Node, and no Administrator rights.
+
+```bat
+git clone <this repo> zim-claude
+cd zim-claude\windows
+win-install.bat
+```
+
+One installer sets up **both** proxies, because on Windows they are always wanted
+together:
+
+| | CLI | Claude Desktop |
+|---|---|---|
+| Port | `4000` | `4002` |
+| Config | `%USERPROFILE%\litellm-config.yaml` | `%USERPROFILE%\.local\share\zim-claude\desktop\litellm-config.desktop.yaml` |
+| Log | `%USERPROFILE%\.local\share\zim-claude\logs\cli.log` | `...\logs\desktop.log` |
+
+It installs the same `zim-claude` command you get on Linux, into
+`%USERPROFILE%\.local\bin`:
+
+```bat
+zim-claude                                  :: interactive session
+zim-claude --dangerously-skip-permissions   :: any claude flag works
+zim-claude -p "explain this function"       :: non-interactive
+zim-claude mcp list                         :: any claude subcommand works
+```
+
+The command works identically from `cmd.exe` and from PowerShell. Every argument is
+forwarded to `claude.exe` untouched, and its exit code passes through — so
+`zim-claude -p "x" && next-step` behaves the way you'd expect.
+
+### Windows flags
+
+```
+win-install.bat                 install both sides, start the proxies
+win-install.bat -DryRun         print every action, change nothing
+win-install.bat -SkipDesktop    CLI proxy (:4000) only
+win-install.bat -SkipCli        Claude Desktop gateway (:4002) only
+win-install.bat -NoStart        install but don't start the proxies
+win-install.bat -Force          overwrite hand-edited files (backed up first)
+win-install.bat -Uninstall      remove what the installer created
+```
+
+Same guarantees as the Linux installer: it backs up anything it would overwrite,
+compares contents so a re-run is a no-op, and **never overwrites your env profile** —
+that file holds a live credential, so `-Force` does not apply to it.
+
+### Manage the proxies
+
+`start-proxies.ps1` drives both:
+
+```powershell
+start-proxies.ps1 start                 # bring both up
+start-proxies.ps1 status                # is it running?
+start-proxies.ps1 status -Which desktop # just the :4002 gateway
+start-proxies.ps1 gateway               # print the 3 values for the Desktop UI
+start-proxies.ps1 logs                  # tail both logs
+start-proxies.ps1 restart
+start-proxies.ps1 stop
+```
+
+You normally never need these — `zim-claude` health-checks `localhost:4000` and starts
+the CLI proxy if it's down, exactly as on Linux.
+
+### Requirements
+
+The installer checks each of these and offers to install what's missing — nothing is
+installed without you answering `y`:
+
+| Tool | If missing |
+|---|---|
+| Python 3.10+ | offers `winget install Python.Python.3.12` (litellm is a Python package) |
+| `litellm` | offers `python -m pip install --user "litellm[proxy]"` |
+| Claude Code | offers Anthropic's native installer, `irm https://claude.ai/install.ps1 \| iex` |
+
+Claude Code on Windows needs **no** WSL, Node, or Administrator rights. It installs to
+`%USERPROFILE%\.local\bin\claude.exe`. [Git for Windows](https://git-scm.com/downloads/win)
+is optional — Claude Code only needs it for its Bash tool.
+
+`install.sh` at the repo root remains the Linux/macOS/WSL installer and is unchanged.
 
 ## The proxy
 
