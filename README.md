@@ -2,7 +2,7 @@
 
 <h1>zim-claude</h1>
 
-<p><strong>Claude Code, pointed at DeepSeek through a local LiteLLM proxy.</strong></p>
+<p><strong>Claude Code, pointed at a local LiteLLM proxy.</strong></p>
 
 <p>Same flags, same subcommands, same interactive UI as <code>claude</code> —<br>
 it just talks to a proxy on <code>localhost:4000</code> instead of Anthropic.</p>
@@ -13,7 +13,7 @@ it just talks to a proxy on <code>localhost:4000</code> instead of Anthropic.</p
 <a href="#claude-desktop--the-zim-gateway"><img src="https://img.shields.io/badge/Claude%20Desktop-gateway%20%3A4002-d97757?style=flat-square" alt="Claude Desktop gateway"></a>
 </p>
 
-<img src="screenshot-1-zim-claude.png" alt="zim-claude running in a terminal" width="620">
+<img src="screenshots/screenshot-1-zim-claude.png" alt="zim-claude running in a terminal" width="620">
 
 </div>
 
@@ -35,8 +35,8 @@ The proxy starts automatically the first time you use it, and the health check c
 about 8 ms once it is already up.
 
 ```
-  Claude Code  ──▶  LiteLLM :4000  ──▶  Token Juice  ──▶  DeepSeek
-   zim-claude          (local)                            (upstream)
+  Claude Code  ──▶  LiteLLM :4000  ──▶  Token Juice  ──▶  upstream
+   zim-claude          (local)                            (model)
 ```
 
 ---
@@ -244,6 +244,9 @@ is optional — Claude Code only needs it for its Bash tool.
 
 ## Claude Desktop — the `zim` gateway
 
+The **zim gateway** provides **free, unlimited Claude Opus 5.5** to Claude Desktop — the
+new front-tier Anthropic model, with no per-message limits.
+
 The CLI proxy above steers **Claude Code**. Claude Desktop is a different app, and it
 ignores those environment variables: when it spawns its embedded agent it *blanks* them
 and injects its own credentials. It only accepts a custom endpoint through
@@ -257,17 +260,17 @@ PID file — `zim-claude` on `:4000` keeps working untouched.
 <table>
 <tr>
 <td align="center" valign="top" width="50%">
-<img src="screenshot-1-claude-desktop.png" alt="Claude Desktop showing Opus 5.5 Max and zim · Gateway" width="440"><br>
+<img src="screenshots/screenshot-1-claude-desktop.png" alt="Claude Desktop showing Opus 5.5 Max and zim · Gateway" width="440"><br>
 <sub>The model picker reads <strong>Opus 5.5 Max</strong>; the status bar reads <strong><code>zim · Gateway</code></strong>.</sub>
 </td>
 <td align="center" valign="top" width="50%">
-<img src="screenshot-2-claude-desktop.png" alt="A Cowork session with the Progress panel open" width="440"><br>
+<img src="screenshots/screenshot-2-claude-desktop.png" alt="A Cowork session with the Progress panel open" width="440"><br>
 <sub>Cowork sessions, progress tracking and the working-folder panel all work normally.</sub>
 </td>
 </tr>
 </table>
 
-<img src="screenshot-3-claude-desktop.png" alt="The session reporting the model name the gateway exposes" width="600">
+<img src="screenshots/screenshot-3-claude-desktop.png" alt="The session reporting the model name the gateway exposes" width="600">
 
 <p><em>Asked which model it is, the session answers with the name the gateway exposes it
 under — <code>claude-opus-5-5</code>.</em></p>
@@ -329,24 +332,6 @@ show a *managed configuration* notice — that is expected.
 
 **`--managed` has no Windows equivalent here** — it writes to `/etc/` with sudo. On
 Windows, use the in-app dialog above.
-
-</details>
-
-<details>
-<summary><b>Why the model is called <code>claude-opus-5-5</code></b></summary>
-
-Claude Desktop imposes two rules on any gateway:
-
-1. **Model names must look Anthropic-shaped.** Any model whose name lacks `claude` /
-   `anthropic` is dropped from the picker:
-   *`inferenceModels: "X" is not an Anthropic model and was removed from the list`*.
-   That is why the upstream is exposed under an Opus-tier name.
-2. **Anthropic-only fields must be tolerated.** Cowork/Code send `cache_control`,
-   `tool_reference` and beta headers. The upstream is OpenAI-style, so the config sets
-   `drop_params: true` to avoid HTTP 400s.
-
-Requirements met by this setup: LiteLLM ≥ v1.98.0 (for `GET /v1/models` discovery) and a
-gateway implementing `POST /v1/messages` — both true of LiteLLM here.
 
 </details>
 
