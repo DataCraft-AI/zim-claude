@@ -1,0 +1,24 @@
+# Line-ending policy.
+#
+# The repo is authored on Linux and every bash script here is sensitive to
+# endings: a CRLF in scripts/zim-claude or install.sh makes the shebang
+# unrunnable and the `case` patterns fail to match. Git for Windows defaults to
+# core.autocrlf=true, which would rewrite them on checkout, so the default is
+# pinned to LF.
+* text=auto eol=lf
+
+# cmd.exe's parser predates LF-only files and is unreliable with them
+# (notably around labels and `goto`). Let Git hand Windows the CRLF it expects.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Windows PowerShell reads LF fine, and keeping these LF means they diff
+# cleanly against their bash counterparts. Marked explicitly so a checkout on
+# Windows with autocrlf=true cannot silently convert them either.
+*.ps1 text eol=lf
+
+# The credential is read verbatim and any injected CR would end up inside the
+# token, producing a 401 that looks like a bad key. install.sh already strips
+# whitespace defensively; this stops the byte from being added in the first
+# place. -text disables all conversion for this path.
+config/token -text
