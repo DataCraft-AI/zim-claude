@@ -48,6 +48,26 @@ cd claude-desktop-integration
 That makes the scripts executable, starts the proxy on `:4002`, and prints the exact
 values to paste into Claude Desktop. It does **not** touch `:4000` or your shell config.
 
+### Windows
+
+There is no separate Windows installer here. The repo's `windows\win-install.bat`
+installs **both** sides in one pass — the CLI proxy on `:4000` and this Desktop gateway
+on `:4002` — and starts them:
+
+```bat
+cd windows
+win-install.bat
+```
+
+Use `-SkipCli` if you want only the `:4002` gateway. The desktop config lands at
+`%USERPROFILE%\.local\share\zim-claude\desktop\litellm-config.desktop.yaml`, its log at
+`...\logs\desktop.log`, and `start-proxies.ps1 gateway` prints the three values below.
+Verify with `windows\verify.ps1`.
+
+**`--managed` is Linux-only.** The no-click managed-settings route writes
+`/etc/claude-desktop/managed-settings.json` with sudo, which has no Windows equivalent
+here. On Windows, use the in-app dialog described below.
+
 Then, in Claude Desktop:
 
 1. **Help → Troubleshooting → Enable Developer Mode**
