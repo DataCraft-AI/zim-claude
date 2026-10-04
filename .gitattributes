@@ -22,3 +22,11 @@
 # whitespace defensively; this stops the byte from being added in the first
 # place. -text disables all conversion for this path.
 config/token -text
+
+# Screenshots are binary. Git already sniffs them and skips conversion, but
+# saying so explicitly keeps a future eol rule from ever mangling an image.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
