@@ -85,6 +85,86 @@ if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   else fail "config/token is NOT tracked — a fresh clone will not have it"; fi
 else skip "not a git checkout — cannot verify tracking"; fi
 
+# ------------------------------------------------------------- windows ------
+
+section "windows artifacts"
+
+# The Windows port is PowerShell, which this Linux box cannot execute (no pwsh).
+# What IS checkable here is that the files exist and that the shims point at the
+# right targets: a .bat wired to a renamed .ps1 is a silent, total failure that
+# no amount of review would catch, and it is exactly what a rename would break.
+for f in win-install.bat win-install.ps1 zim-claude.cmd zim-claude.ps1 \
+         start-proxies.ps1 verify.ps1; do
+  if [[ -f "$REPO/windows/$f" ]]; then pass "windows/$f present"
+  else fail "windows/$f present"; fi
+done
+
+# win-install.bat must invoke win-install.ps1.
+if grep -q 'win-install\.ps1' "$REPO/windows/win-install.bat" 2>/dev/null; then
+  pass "win-install.bat invokes win-install.ps1"
+else fail "win-install.bat does not reference win-install.ps1"; fi
+
+# zim-claude.cmd must invoke zim-claude.ps1.
+if grep -q 'zim-claude\.ps1' "$REPO/windows/zim-claude.cmd" 2>/dev/null; then
+  pass "zim-claude.cmd invokes zim-claude.ps1"
+else fail "zim-claude.cmd does not reference zim-claude.ps1"; fi
+
+# The wrapper must call the proxy manager by the name the installer ships it as.
+if grep -q "start-proxies\.ps1" "$REPO/windows/zim-claude.ps1" 2>/dev/null; then
+  pass "zim-claude.ps1 references start-proxies.ps1"
+else fail "zim-claude.ps1 does not reference start-proxies.ps1"; fi
+
+# Both .cmd shims must propagate the exit code, or failures are swallowed.
+for f in win-install.bat zim-claude.cmd; do
+  if grep -q 'exit /b %ERRORLEVEL%' "$REPO/windows/$f" 2>/dev/null; then
+    pass "$f propagates ERRORLEVEL"
+  else fail "$f does not propagate ERRORLEVEL"; fi
+done
+
+# The Windows scripts must not hardcode a user's home directory.
+if hits="$(grep -rniE 'C:\\Users\\[A-Za-z0-9._-]+' "$REPO/windows" 2>/dev/null)"; then
+  fail "no hardcoded C:\\Users\\<name> in windows/" "$hits"
+else pass "no hardcoded C:\\Users\\<name> in windows/"; fi
+
+# The credential profile and the shared proxy manager must be installed for
+# EITHER side. Both proxies read the same ANTHROPIC_AUTH_TOKEN from that one
+# profile, so `win-install.bat -SkipCli` — the invocation the desktop README
+# recommends — would otherwise leave the :4002 gateway unable to authenticate.
+# Anchored on the guard line: Install-EnvProfile also appears inside its own
+# definition, so a bare grep would match unconditionally.
+if grep -qE '^if \(-not \$SkipCli -or -not \$SkipDesktop\)' "$REPO/windows/win-install.ps1" 2>/dev/null; then
+  pass "env profile installed for either side (not skipped with -SkipCli)"
+else
+  fail "win-install.ps1 gates the env profile on -SkipCli" \
+       "-SkipCli would leave the :4002 gateway with no ANTHROPIC_AUTH_TOKEN"
+fi
+
+# A dry run must not install prerequisites: Test-Prereqs shells out to winget,
+# pip and the Claude Code installer, so answering 'y' would mutate the machine
+# during -DryRun and contradict its "change nothing" contract.
+if grep -qE '^\s*if \(\$DryRun\) \{' "$REPO/windows/win-install.ps1" 2>/dev/null &&
+   awk '/^function Confirm-Install/,/^}/' "$REPO/windows/win-install.ps1" |
+     grep -q '\$DryRun'; then
+  pass "Confirm-Install is a no-op under -DryRun"
+else
+  fail "Confirm-Install ignores -DryRun" "-DryRun would still run winget/pip installs"
+fi
+
+# --- line-ending policy ---
+# config/token must never be converted: a CR inside the token is a 401 that
+# looks like a bad key. The .bat shims need CRLF; the bash side needs LF.
+if [[ -f "$REPO/.gitattributes" ]]; then
+  pass ".gitattributes present"
+  if grep -qE '^[[:space:]]*config/token[[:space:]]+-text' "$REPO/.gitattributes"; then
+    pass ".gitattributes pins config/token to -text"
+  else fail ".gitattributes does not protect config/token"; fi
+  if grep -qE '^[[:space:]]*\*\.bat[[:space:]]+text[[:space:]]+eol=crlf' "$REPO/.gitattributes"; then
+    pass ".gitattributes gives *.bat CRLF"
+  else fail ".gitattributes does not set *.bat eol=crlf"; fi
+else
+  fail ".gitattributes present" "a Windows checkout with autocrlf=true would corrupt the bash scripts"
+fi
+
 # ---------------------------------------------------------------- sandbox ---
 
 SBX="$(mktemp -d "${TMPDIR:-/tmp}/zim-test-XXXXXX")"
