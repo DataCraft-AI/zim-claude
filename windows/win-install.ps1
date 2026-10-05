@@ -129,9 +129,20 @@ function Get-FileHashString {
 function Read-State {
   if (-not (Test-Path -LiteralPath $StateFile)) { return @() }
   try {
-    $raw = Get-Content -LiteralPath $StateFile -Raw
+    # -Encoding UTF8 must match the writer: Set-Content -Encoding UTF8 emits a
+    # BOM on 5.1, and reading that back under the ANSI default puts three junk
+    # characters in front of the JSON, which ConvertFrom-Json then rejects.
+    $raw = Get-Content -LiteralPath $StateFile -Raw -Encoding UTF8
     if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
-    return @(ConvertFrom-Json $raw)
+    # Drop anything that is not an entry before returning it. This script runs
+    # under Set-StrictMode -Version 2.0, where reading a property that does not
+    # exist is a FATAL PropertyNotFoundStrict error rather than $null. So one
+    # entry without `path` - a file from an older revision, a hand-edited one,
+    # a stray null - aborts the whole install the moment a caller touches
+    # .path, which is exactly the failure this guards against. The state file
+    # only tells -Uninstall what it may safely delete; nothing in it is worth
+    # failing an install over.
+    return @(@(ConvertFrom-Json $raw) | Where-Object { $_ -and $_.PSObject.Properties['path'] })
   } catch {
     Write-Warn "state file unreadable, treating as empty: $StateFile"
     return @()
