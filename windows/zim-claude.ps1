@@ -84,7 +84,7 @@ if (-not (Test-Path -LiteralPath $ClaudeBin)) {
 # --- load the profile --------------------------------------------------------
 
 # Fail CLOSED. Without the profile, claude would silently use whatever
-# ANTHROPIC_* this shell already exports — a session against the wrong provider,
+# ANTHROPIC_* this shell already exports - a session against the wrong provider,
 # with the wrong model, and no indication anything was off.
 if (-not (Test-Path -LiteralPath $EnvFile)) {
   Write-Die "env file not found: $EnvFile
@@ -108,7 +108,7 @@ foreach ($line in Get-Content -LiteralPath $EnvFile) {
 
 if (-not $profileVars.ContainsKey('ANTHROPIC_AUTH_TOKEN') -or
     [string]::IsNullOrEmpty($profileVars['ANTHROPIC_AUTH_TOKEN'])) {
-  Write-Die "$EnvFile did not set ANTHROPIC_AUTH_TOKEN — refusing to start."
+  Write-Die "$EnvFile did not set ANTHROPIC_AUTH_TOKEN - refusing to start."
 }
 
 # Scope the variables to this process only; the parent shell is untouched, so
@@ -148,13 +148,13 @@ function Ensure-Proxy {
     return $false
   }
 
-  Write-Info "LiteLLM proxy not answering on :$Port — starting it..."
+  Write-Info "LiteLLM proxy not answering on :$Port - starting it..."
   # A subprocess, never dot-sourced: start-proxies.ps1 ends in a switch that
   # runs on load and calls exit.
   & powershell -NoProfile -ExecutionPolicy Bypass -File $Service start -Which cli | Out-Null
   if (Test-ProxyHealthy) { Write-Info "proxy is up."; return $true }
 
-  Write-Warn "could not start the proxy — see the log under .local\share\zim-claude\logs\"
+  Write-Warn "could not start the proxy - see the log under .local\share\zim-claude\logs\"
   Write-Warn "continuing anyway; claude will report the connection error."
   return $false
 }

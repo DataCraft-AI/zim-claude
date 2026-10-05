@@ -110,7 +110,7 @@ $DeskConfig    = Join-Path $DeskConfigDir 'litellm-config.desktop.yaml'
 #
 # Honours CLAUDE_DESKTOP_LITELLM_KEY for the same reason start-proxies.ps1 and
 # verify.ps1 do: those two enforce whatever key is in the environment, so a
-# hardcoded default here would print the WRONG key for the dialog — the app
+# hardcoded default here would print the WRONG key for the dialog - the app
 # would send it, the proxy would reject it, and LiteLLM reports a key mismatch
 # as "No connected db." (it assumes an unmatched key is a DB-backed virtual
 # key, and there is no DB).
@@ -179,7 +179,7 @@ function Install-File {
       return $true
     }
     if (-not $Force -and -not (Test-FileIsOurs -Path $Dest)) {
-      Write-Warn "you have modified this file — leaving it alone: $Dest"
+      Write-Warn "you have modified this file - leaving it alone: $Dest"
       Write-Warn "  re-run with -Force to overwrite (a backup is still taken)"
       return $false
     }
@@ -196,7 +196,7 @@ function Install-File {
 }
 
 # The env file is special: it holds a live credential, so it is never
-# overwritten — not even with -Force. Losing it would mean re-issuing a token.
+# overwritten - not even with -Force. Losing it would mean re-issuing a token.
 function Install-EnvProfile {
   Invoke-Step "mkdir $HomeSrc" { New-Item -ItemType Directory -Force -Path $HomeSrc | Out-Null }
 
@@ -206,7 +206,7 @@ function Install-EnvProfile {
   }
 
   # Plaintext token file. Trims surrounding whitespace, including the CR that a
-  # Windows checkout or a browser copy-paste adds — a trailing CR inside the
+  # Windows checkout or a browser copy-paste adds - a trailing CR inside the
   # export produces a 401 that looks like a bad key.
   $token = ''
   $src = ''
@@ -232,7 +232,7 @@ function Install-EnvProfile {
   }
 
   if ($token -notmatch '^[A-Za-z0-9_.:-]+$') {
-    Write-Err "token in $src contains unexpected characters — refusing to install it"
+    Write-Err "token in $src contains unexpected characters - refusing to install it"
     return $false
   }
 
@@ -269,7 +269,7 @@ function Install-DesktopConfig {
       return $true
     }
     if (-not $Force -and -not (Test-FileIsOurs -Path $DeskConfig)) {
-      Write-Warn "you have modified this file — leaving it alone: $DeskConfig"
+      Write-Warn "you have modified this file - leaving it alone: $DeskConfig"
       Write-Warn "  re-run with -Force to overwrite (a backup is still taken)"
       return $false
     }
@@ -305,7 +305,7 @@ function Get-PythonCmd {
 # install) would make Read-Host throw, so report the command instead.
 function Confirm-Install {
   param([string]$Name, [string]$Command)
-  # A dry run must not install anything, so the prompt never appears — the
+  # A dry run must not install anything, so the prompt never appears - the
   # command is printed for the user to run themselves afterwards.
   if ($DryRun) {
     Write-Warn "$Name not found. Would install with:"
@@ -352,7 +352,7 @@ function Test-Prereqs {
         (Confirm-Install 'Python' 'winget install Python.Python.3.12')) {
       Write-Say "running: winget install Python.Python.3.12"
       try { winget install --id Python.Python.3.12 -e --source winget } catch {
-        Write-Warn "python install failed — continuing."
+        Write-Warn "python install failed - continuing."
       }
       $python = Get-PythonCmd
       if ($python) { Write-Ok "python installed." } else { Set-PrereqFailed }
@@ -373,7 +373,7 @@ function Test-Prereqs {
         & $python -m pip install --user 'litellm[proxy]'
         Write-Ok "litellm installed."
       } catch {
-        Write-Warn "litellm install failed — continuing."
+        Write-Warn "litellm install failed - continuing."
         Set-PrereqFailed
       }
     } else {
@@ -395,7 +395,7 @@ function Test-Prereqs {
         Invoke-Expression (Invoke-RestMethod -Uri 'https://claude.ai/install.ps1')
         Write-Ok "Claude Code installed."
       } catch {
-        Write-Warn "Claude Code install failed — continuing."
+        Write-Warn "Claude Code install failed - continuing."
         Set-PrereqFailed
       }
       if (-not (Get-Command claude -ErrorAction SilentlyContinue) -and
@@ -429,7 +429,7 @@ function Add-UserPath {
   }
 
   # The script is a subprocess, so it cannot change the PATH of the shell that
-  # launched it — the one the user actually types into. Prepending to our own
+  # launched it - the one the user actually types into. Prepending to our own
   # PATH is still worth doing, because the proxy manager below is our child and
   # inherits it: without this the install could finish and then fail to start
   # the very proxy it just installed.
@@ -448,7 +448,7 @@ function Add-UserPath {
   }
 }
 
-# --- advisory conflict checks (warn only — never mutate) ---------------------
+# --- advisory conflict checks (warn only - never mutate) ---------------------
 
 function Test-Conflicts {
   $profilePaths = @(
@@ -457,7 +457,7 @@ function Test-Conflicts {
   )
   foreach ($p in $profilePaths) {
     if ((Test-Path -LiteralPath $p) -and (Select-String -LiteralPath $p -Pattern 'ANTHROPIC_' -Quiet)) {
-      Write-Warn "$p sets ANTHROPIC_* — plain 'claude' uses that provider."
+      Write-Warn "$p sets ANTHROPIC_* - plain 'claude' uses that provider."
       Write-Warn "'zim-claude' overrides it for its own process only."
     }
   }
@@ -491,14 +491,14 @@ function Invoke-Uninstall {
       Write-Say "removing $($e.path)"
       Invoke-Step "remove $($e.path)" { Remove-Item -LiteralPath $e.path -Force }
     } else {
-      Write-Warn "modified since install — leaving: $($e.path)"
+      Write-Warn "modified since install - leaving: $($e.path)"
       Write-Warn "  backup from install time is under $BackupRoot"
     }
   }
 
   # Never touch user data. The env file is a credential and claude-source\ may
   # also hold unrelated profiles, so both stay put.
-  Write-Say "keeping $EnvFile (your credential — delete it yourself if you want)"
+  Write-Say "keeping $EnvFile (your credential - delete it yourself if you want)"
 
   Invoke-Step "remove $StateFile" { Remove-Item -LiteralPath $StateFile -Force -ErrorAction SilentlyContinue }
   Write-Ok "uninstalled."
@@ -528,7 +528,7 @@ if ($Uninstall) {
 Write-Say "zim-claude installer (Windows)"
 Write-Say "source:  $SrcDir"
 Write-Say "target:  $BinDir"
-if ($DryRun) { Write-Warn "DRY RUN — nothing will be changed" }
+if ($DryRun) { Write-Warn "DRY RUN - nothing will be changed" }
 
 Test-Prereqs
 
@@ -558,7 +558,7 @@ Test-Conflicts
 
 Write-Host ''
 if ($script:PrereqFailed) {
-  Write-Warn "install incomplete — missing prerequisites (see above)."
+  Write-Warn "install incomplete - missing prerequisites (see above)."
 }
 Write-Ok "done. Try:  zim-claude --version"
 
@@ -568,7 +568,7 @@ if (-not $NoStart) {
   $mgr = Join-Path $BinDir 'start-proxies.ps1'
   if (-not (Test-Path -LiteralPath $mgr)) { $mgr = Join-Path $WinDir 'start-proxies.ps1' }
   try { & powershell -NoProfile -ExecutionPolicy Bypass -File $mgr start }
-  catch { Write-Warn "proxies did not start — see the logs under $StateDir\logs" }
+  catch { Write-Warn "proxies did not start - see the logs under $StateDir\logs" }
 }
 
 if (-not $SkipDesktop) {

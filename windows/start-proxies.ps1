@@ -8,8 +8,8 @@
     cli      :4000   Claude Code CLI        (zim-claude)
     desktop  :4002   Claude Desktop gateway
 
-  They share one credential profile but nothing else — separate config, log and
-  PID file — so restarting one never disturbs the other.
+  They share one credential profile but nothing else - separate config, log and
+  PID file - so restarting one never disturbs the other.
 
   This is the Windows counterpart of scripts/start-litellm.sh (CLI) and
   claude-desktop-integration/start-desktop-proxy.sh (Desktop), merged into one
@@ -243,7 +243,7 @@ function Start-OneProxy {
     }
   }
 
-  # Poll for health — litellm takes several seconds to import and bind. 30s
+  # Poll for health - litellm takes several seconds to import and bind. 30s
   # matches the bash manager's budget.
   for ($i = 1; $i -le 30; $i++) {
     if (Test-PortAnswers -Port $Proxy.Port) {
@@ -253,7 +253,7 @@ function Start-OneProxy {
     Start-Sleep -Seconds 1
   }
 
-  Write-Err "$($Proxy.Name): did not become healthy within 30s — last log lines:"
+  Write-Err "$($Proxy.Name): did not become healthy within 30s - last log lines:"
   foreach ($f in @($Proxy.Log, $errLog)) {
     if (Test-Path -LiteralPath $f) {
       Get-Content -LiteralPath $f -Tail 20 | ForEach-Object { [Console]::Error.WriteLine("    $_") }
@@ -276,7 +276,7 @@ function Stop-OneProxy {
 
   Remove-Item -LiteralPath $Proxy.PidFile -Force -ErrorAction SilentlyContinue
   if (Test-PortAnswers -Port $Proxy.Port) {
-    Write-Log "$($Proxy.Name): no PID file, but :$($Proxy.Port) still answers — leaving it alone."
+    Write-Log "$($Proxy.Name): no PID file, but :$($Proxy.Port) still answers - leaving it alone."
     Write-Log "         (stop the process manually if it is a stray litellm)"
   } else {
     Write-Log "$($Proxy.Name): not running."
@@ -288,7 +288,7 @@ function Get-OneProxyStatus {
   if (Test-ProxyRunning -Proxy $Proxy) {
     $p = Get-ProxyPid -Proxy $Proxy
     if (Test-PortAnswers -Port $Proxy.Port) { $state = 'healthy' } else { $state = 'NOT answering' }
-    Write-Log "$($Proxy.Name): running (pid $p) on :$($Proxy.Port) — $state"
+    Write-Log "$($Proxy.Name): running (pid $p) on :$($Proxy.Port) - $state"
   } else {
     Write-Log "$($Proxy.Name): not running (:$($Proxy.Port))"
   }
@@ -333,7 +333,7 @@ switch ($Action) {
   'logs' {
     $files = @()
     foreach ($p in Get-Targets) { if (Test-Path -LiteralPath $p.Log) { $files += $p.Log } }
-    if ($files.Count -eq 0) { Write-Err "no log files yet — start a proxy first."; exit 1 }
+    if ($files.Count -eq 0) { Write-Err "no log files yet - start a proxy first."; exit 1 }
     Get-Content -LiteralPath $files -Tail 50 -Wait
   }
   'gateway' {

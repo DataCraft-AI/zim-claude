@@ -1,12 +1,12 @@
 @echo off
-rem zim-claude.cmd — Windows entry point for the zim-claude wrapper.
+rem zim-claude.cmd - Windows entry point for the zim-claude wrapper.
 rem
 rem This shim exists because a .ps1 cannot be run by bare name: cmd, PowerShell's
 rem bare-command lookup, and any program calling us as a subprocess all need a
 rem real executable. A .cmd is one; a .ps1 is not.
 rem
 rem It is also what makes `zim-claude ...` work identically in cmd.exe and in
-rem PowerShell — PowerShell finds zim-claude.cmd on PATH and runs it.
+rem PowerShell - PowerShell finds zim-claude.cmd on PATH and runs it.
 rem
 rem All arguments are forwarded verbatim. `%*` preserves quoting as cmd received
 rem it, so flags, subcommands and quoted strings with spaces all survive.

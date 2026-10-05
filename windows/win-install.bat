@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem win-install.bat — install zim-claude and the Claude Desktop gateway on Windows.
+rem win-install.bat - install zim-claude and the Claude Desktop gateway on Windows.
 rem
 rem This is the entry point. It is a .bat rather than a .ps1 for two reasons:
 rem double-clicking it works, and it runs even when the machine's execution

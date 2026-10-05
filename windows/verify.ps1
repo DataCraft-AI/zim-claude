@@ -49,7 +49,7 @@ try {
   if ($r.StatusCode -eq 200) { Write-Pass "healthy (HTTP 200)"; $healthy = $true }
   else { Write-Fail "HTTP $($r.StatusCode)" }
 } catch {
-  Write-Fail "unreachable — is the proxy running? try: start-proxies.ps1 start -Which desktop"
+  Write-Fail "unreachable - is the proxy running? try: start-proxies.ps1 start -Which desktop"
 }
 if (-not $healthy) { exit 1 }
 
@@ -64,7 +64,7 @@ try {
   if ($body -match 'claude') {
     Write-Pass "picker will show claude-* model(s)"
   } else {
-    Write-Fail "no claude/anthropic-named model — Claude Desktop would reject the deployment"
+    Write-Fail "no claude/anthropic-named model - Claude Desktop would reject the deployment"
   }
 } catch {
   Write-Fail "request failed: $_"
