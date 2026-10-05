@@ -555,6 +555,7 @@ if (-not $SkipCli) {
 # leave the :4002 gateway startable and able to authenticate.
 if (-not $SkipCli -or -not $SkipDesktop) {
   Install-File -Src (Join-Path $WinDir 'start-proxies.ps1') -Dest (Join-Path $BinDir 'start-proxies.ps1') -Scope 'shared' | Out-Null
+  Install-File -Src (Join-Path $WinDir 'start-proxies.cmd') -Dest (Join-Path $BinDir 'start-proxies.cmd') -Scope 'shared' | Out-Null
   Install-EnvProfile | Out-Null
 }
 
@@ -562,6 +563,7 @@ if (-not $SkipDesktop) {
   Write-Say "installing the Claude Desktop side (:4002)"
   Install-DesktopConfig | Out-Null
   Install-File -Src (Join-Path $WinDir 'verify.ps1') -Dest (Join-Path $BinDir 'verify.ps1') -Scope 'desktop' | Out-Null
+  Install-File -Src (Join-Path $WinDir 'verify.cmd') -Dest (Join-Path $BinDir 'verify.cmd') -Scope 'desktop' | Out-Null
 }
 
 Add-UserPath -Dir $BinDir
