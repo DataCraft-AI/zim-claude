@@ -107,8 +107,16 @@ $DeskConfig    = Join-Path $DeskConfigDir 'litellm-config.desktop.yaml'
 # Values printed for the Claude Desktop dialog. The desktop proxy config reads
 # the same env var the CLI config does, so one profile serves both and the
 # shared secret stays in exactly one place.
+#
+# Honours CLAUDE_DESKTOP_LITELLM_KEY for the same reason start-proxies.ps1 and
+# verify.ps1 do: those two enforce whatever key is in the environment, so a
+# hardcoded default here would print the WRONG key for the dialog — the app
+# would send it, the proxy would reject it, and LiteLLM reports a key mismatch
+# as "No connected db." (it assumes an unmatched key is a DB-backed virtual
+# key, and there is no DB).
 $DeskProxyPort = 4002
-$GatewayKey    = 'sk-claude-desktop-local'
+if ($env:CLAUDE_DESKTOP_LITELLM_KEY) { $GatewayKey = $env:CLAUDE_DESKTOP_LITELLM_KEY }
+else { $GatewayKey = 'sk-claude-desktop-local' }
 
 # --- helpers -----------------------------------------------------------------
 
