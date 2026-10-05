@@ -279,7 +279,9 @@ under — <code>claude-opus-5-5</code>.</em></p>
 
 ### Set it up
 
-**Windows** — the single Windows installer already did it:
+**Windows** — the installer sets up the proxy; you still paste the values into the app
+once (Windows has no managed-config file, so there is nothing the installer can write
+for you):
 
 ```bat
 cd windows
@@ -288,8 +290,13 @@ win-install.bat
 
 Use `-SkipCli` if you want only the `:4002` gateway. The desktop config lands at
 `%USERPROFILE%\.local\share\zim-claude\desktop\litellm-config.desktop.yaml`, its log at
-`...\logs\desktop.log`, and `start-proxies.ps1 gateway` prints the values for the UI.
-Verify with `windows\verify.ps1`.
+`...\logs\desktop.log`. `start-proxies.ps1 gateway` prints the exact values for the
+dialog, and `windows\verify.ps1` proves the gateway answers.
+
+> **Use the key `start-proxies.ps1 gateway` prints, not the one in this README.** If
+> `CLAUDE_DESKTOP_LITELLM_KEY` is set, the proxy enforces *that* key. A mismatch comes
+> back as `{"error":{"message":"No connected db.","type":"no_db_connection"}}` — LiteLLM
+> treats an unmatched key as a DB-backed virtual key and there is no DB.
 
 **Linux · macOS** — run the desktop installer:
 
