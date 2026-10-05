@@ -150,6 +150,31 @@ else
   fail "Confirm-Install ignores -DryRun" "-DryRun would still run winget/pip installs"
 fi
 
+# The installer must prepend its own bin dir to the PATH of the current run
+# instead of only warning about it. It is a subprocess, so it cannot fix the
+# user's shell — but it can fix itself, which is what lets the proxy start
+# below and the closing "Try: zim-claude --version" actually resolve. Telling
+# the user to run $env:Path = "..." by hand is the bug this guards against.
+if awk '/^function Add-UserPath/,/^}/' "$REPO/windows/win-install.ps1" |
+     grep -qF '$env:Path = "$Dir;$env:Path"'; then
+  pass "Add-UserPath prepends to PATH for the current run"
+else
+  fail "Add-UserPath only warns about PATH" \
+       "the installer would leave zim-claude unrunnable in its own session"
+fi
+
+# The gateway key printed for the Desktop dialog must honour
+# CLAUDE_DESKTOP_LITELLM_KEY, exactly as start-proxies.ps1 and verify.ps1 do.
+# A hardcoded default would print a key the proxy does not enforce, and the app
+# would get back {"error":{"message":"No connected db.",...}} — a key mismatch
+# that reads as a database problem.
+if grep -qF '$env:CLAUDE_DESKTOP_LITELLM_KEY' "$REPO/windows/win-install.ps1" 2>/dev/null; then
+  pass "win-install.ps1 honours CLAUDE_DESKTOP_LITELLM_KEY"
+else
+  fail "win-install.ps1 hardcodes the gateway key" \
+       "it would print a key the :4002 proxy rejects as 'No connected db.'"
+fi
+
 # --- line-ending policy ---
 # config/token must never be converted: a CR inside the token is a 401 that
 # looks like a bad key. The .bat shims need CRLF; the bash side needs LF.
