@@ -181,6 +181,26 @@ else
        "it would print a key the :4002 proxy rejects as 'No connected db.'"
 fi
 
+# --- script encoding ---
+# powershell.exe (Windows PowerShell 5.1, which both shims invoke) decodes a
+# BOM-less .ps1 with the machine's ANSI codepage, NOT UTF-8. An em dash is the
+# byte sequence E2 80 94; CP1252 maps 0x94 to a curly closing quote, and
+# PowerShell accepts that as a string terminator. One em dash inside a "..."
+# string therefore ends the string early, desynchronises every quote after it,
+# and the file dies with "Missing closing '}'" hundreds of lines away — the
+# reported line number has nothing to do with the real cause. cmd.exe reads its
+# own file through the OEM codepage and fails the same way. Keeping everything
+# the Windows port ships pure ASCII removes the codepage from the equation.
+for f in "$REPO"/windows/*; do
+  [[ -f "$f" ]] || continue
+  if LC_ALL=C grep -q '[^[:print:][:space:]]' "$f" 2>/dev/null; then
+    fail "windows/$(basename "$f") is pure ASCII" \
+         "non-ASCII bytes misparse under PowerShell 5.1 / cmd.exe on a non-UTF-8 codepage"
+  else
+    pass "windows/$(basename "$f") is pure ASCII"
+  fi
+done
+
 # --- line-ending policy ---
 # config/token must never be converted: a CR inside the token is a 401 that
 # looks like a bad key. The .bat shims need CRLF; the bash side needs LF.
