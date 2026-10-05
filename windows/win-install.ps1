@@ -428,15 +428,23 @@ function Add-UserPath {
     }
   }
 
-  # Make $Dir usable for the rest of THIS run. The script is a subprocess and
-  # cannot change the PATH of the shell that launched it — but it can fix its
-  # own, which is what makes the proxy start below and the closing
-  # "Try: zim-claude --version" actually work instead of failing with
-  # "not recognized".
+  # The script is a subprocess, so it cannot change the PATH of the shell that
+  # launched it — the one the user actually types into. Prepending to our own
+  # PATH is still worth doing, because the proxy manager below is our child and
+  # inherits it: without this the install could finish and then fail to start
+  # the very proxy it just installed.
   $sessionParts = @($env:Path -split ';' | Where-Object { $_ -ne '' })
   if ($sessionParts -notcontains $Dir) {
     $env:Path = "$Dir;$env:Path"
-    Write-Say "$Dir prepended to PATH for this run"
+    Write-Say "$Dir added to PATH for this run"
+
+    # ...but the user's shell is untouched, and it is the one that matters when
+    # they type `zim-claude`. Say so, or they will meet "not recognized" with
+    # nothing explaining it.
+    Write-Warn "$Dir is not on PATH in THIS window."
+    Write-Warn "For this window, run:"
+    Write-Warn "    `$env:Path = `"$Dir;`$env:Path`""
+    Write-Warn "A new terminal will pick it up on its own."
   }
 }
 

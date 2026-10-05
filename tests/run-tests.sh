@@ -150,17 +150,23 @@ else
   fail "Confirm-Install ignores -DryRun" "-DryRun would still run winget/pip installs"
 fi
 
-# The installer must prepend its own bin dir to the PATH of the current run
-# instead of only warning about it. It is a subprocess, so it cannot fix the
-# user's shell — but it can fix itself, which is what lets the proxy start
-# below and the closing "Try: zim-claude --version" actually resolve. Telling
-# the user to run $env:Path = "..." by hand is the bug this guards against.
-if awk '/^function Add-UserPath/,/^}/' "$REPO/windows/win-install.ps1" |
-     grep -qF '$env:Path = "$Dir;$env:Path"'; then
+# Add-UserPath must do BOTH of these, and they are not substitutes:
+#   - prepend to its own PATH, so the proxy manager it spawns can find litellm;
+#   - still warn that the user's shell is unchanged, since that is the one they
+#     type `zim-claude` into. Doing only the first hides why the command is
+#     "not recognized" in the window they are looking at.
+path_fn="$(awk '/^function Add-UserPath/,/^}/' "$REPO/windows/win-install.ps1")"
+if grep -qF '$env:Path = "$Dir;$env:Path"' <<<"$path_fn"; then
   pass "Add-UserPath prepends to PATH for the current run"
 else
-  fail "Add-UserPath only warns about PATH" \
-       "the installer would leave zim-claude unrunnable in its own session"
+  fail "Add-UserPath does not prepend to PATH" \
+       "the proxy manager it spawns would not find litellm"
+fi
+if grep -qF 'is not on PATH in THIS window' <<<"$path_fn"; then
+  pass "Add-UserPath still warns the user's shell is unchanged"
+else
+  fail "Add-UserPath stopped warning about the user's shell" \
+       "zim-claude would be 'not recognized' with nothing explaining it"
 fi
 
 # The gateway key printed for the Desktop dialog must honour
