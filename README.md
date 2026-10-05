@@ -211,17 +211,23 @@ that file holds a live credential, so `-Force` does not apply to it.
 
 ### Manage the proxies
 
-`start-proxies.ps1` drives both:
+`start-proxies` drives both:
 
 ```powershell
-start-proxies.ps1 start                 # bring both up
-start-proxies.ps1 status                # is it running?
-start-proxies.ps1 status -Which desktop # just the :4002 gateway
-start-proxies.ps1 gateway               # print the values for the Desktop UI
-start-proxies.ps1 logs                  # tail both logs
-start-proxies.ps1 restart
-start-proxies.ps1 stop
+start-proxies start                 # bring both up
+start-proxies status                # is it running?
+start-proxies status -Which desktop # just the :4002 gateway
+start-proxies gateway               # print the values for the Desktop UI
+start-proxies logs                  # tail both logs
+start-proxies restart
+start-proxies stop
 ```
+
+Run the command, not the `.ps1` by name. A `.ps1` cannot be executed by name alone
+(`.\start-proxies.ps1` is required, and on a Windows client the default `Restricted`
+execution policy blocks it anyway). `start-proxies.cmd` is what makes the plain
+command work: it passes `-ExecutionPolicy Bypass` for that one invocation, so your
+machine's policy is untouched. Every `.ps1` here has such a shim for the same reason.
 
 You normally never need these — `zim-claude` health-checks `localhost:4000` and starts
 the CLI proxy if it's down, exactly as on Linux.
@@ -421,6 +427,29 @@ All of `zim-claude`'s own diagnostics go to stderr, so stdout stays clean:
 ```bash
 zim-claude -p "hi" --output-format json 2>/dev/null | jq .
 ```
+
+**Windows: `... is not digitally signed. You cannot run this script on the current system.`**
+Windows is refusing the script on execution policy. Run the `.cmd`/`.bat` next to it
+instead of the `.ps1` by name — `win-install.bat`, `start-proxies.cmd`, `verify.cmd`,
+`zim-claude.cmd`. Each passes `-ExecutionPolicy Bypass` for its own invocation only, so
+your machine's policy is never changed. Invoking `.\some-script.ps1` directly skips
+that bypass and is subject to whatever policy applies.
+
+If a `.cmd` shim is *also* refused, the policy is set by **Group Policy**, which
+overrides the command-line bypass — PowerShell's own documentation is explicit that the
+session policy "doesn't take precedence over the execution policy set by using a Group
+Policy." Check with:
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+A non-`Undefined` value in `MachinePolicy` or `UserPolicy` means Group Policy owns it and
+only an administrator can change it.
+
+Files that arrived in a downloaded ZIP also carry the mark-of-the-web, which
+`RemoteSigned` refuses even for unsigned local scripts. `Unblock-File .\script.ps1`
+clears that. A `git clone` never sets it in the first place.
 
 **Windows: `win-install.bat` dies with `Missing closing '}'` or `Unexpected token`.**
 Windows PowerShell 5.1 reads a BOM-less `.ps1` using the machine's ANSI codepage, not
