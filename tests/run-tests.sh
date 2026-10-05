@@ -201,6 +201,30 @@ for f in "$REPO"/windows/*; do
   fi
 done
 
+# Read-State must not hand out entries that lack a `path`. win-install.ps1 runs
+# under Set-StrictMode -Version 2.0, where reading a missing property is a fatal
+# PropertyNotFoundStrict error rather than $null - so one bad entry (older
+# revision, hand-edited file, stray null) aborts the install the moment a caller
+# touches .path. That is the "property 'path' cannot be found" crash at the
+# Test-FileIsOurs pipeline. The filter is what makes the property access safe.
+state_fn="$(awk '/^function Read-State/,/^}/' "$REPO/windows/win-install.ps1")"
+if grep -qF "PSObject.Properties['path']" <<<"$state_fn"; then
+  pass "Read-State filters entries without a path"
+else
+  fail "Read-State returns raw entries" \
+       "StrictMode 2.0 turns a missing .path into a fatal error mid-install"
+fi
+
+# The reader must use the same encoding the writer does. Set-Content -Encoding
+# UTF8 emits a BOM on PowerShell 5.1; reading that back under the ANSI default
+# prepends junk to the JSON and ConvertFrom-Json rejects it.
+if grep -qE 'Get-Content .*-Raw -Encoding UTF8' <<<"$state_fn"; then
+  pass "Read-State reads the state file as UTF8"
+else
+  fail "Read-State reads the state file with the default encoding" \
+       "the BOM written by Set-Content -Encoding UTF8 would corrupt the JSON"
+fi
+
 # --- line-ending policy ---
 # config/token must never be converted: a CR inside the token is a 401 that
 # looks like a bad key. The .bat shims need CRLF; the bash side needs LF.
