@@ -422,6 +422,15 @@ All of `zim-claude`'s own diagnostics go to stderr, so stdout stays clean:
 zim-claude -p "hi" --output-format json 2>/dev/null | jq .
 ```
 
+**Windows: `win-install.bat` dies with `Missing closing '}'` or `Unexpected token`.**
+Windows PowerShell 5.1 reads a BOM-less `.ps1` using the machine's ANSI codepage, not
+UTF-8. A character like an em dash is three UTF-8 bytes, and `0x94` decodes to a curly
+quote that PowerShell accepts as a string terminator — so one character inside a string
+ends it early, desynchronises every quote after it, and the parser reports a brace error
+hundreds of lines from the real cause. `cmd.exe` misreads its own files the same way.
+Everything under `windows/` is therefore kept pure ASCII, which `tests/run-tests.sh`
+enforces.
+
 **Desktop picker is empty / model missing.**
 Confirm `verify.sh` shows a `claude*` id from `/v1/models`. A non-claude name is silently
 dropped by the app.
@@ -471,6 +480,15 @@ checkout keeps working.
 shebangs unrunnable. The repo is pinned to LF, `.bat`/`.cmd` are handed CRLF for
 cmd.exe's parser, and `config/token` is marked `-text` so no CR can ever land inside the
 credential.
+
+**The `windows/` scripts must stay pure ASCII.** Both shims invoke `powershell`, which
+on Windows is 5.1, not `pwsh` 7 — and 5.1 decodes a BOM-less script with the ANSI
+codepage rather than UTF-8. Under CP1252 an em dash's `0x94` byte becomes a curly closing
+quote, which PowerShell treats as a string terminator: the string ends early, every
+quote after it flips, and the file fails with `Missing closing '}'` at a line nowhere
+near the offending character. A UTF-8 BOM would also fix the decoding, but it breaks the
+`@echo off` in the `.bat`/`.cmd` shims, so ASCII is the rule for every file here. Adding
+one is caught by `tests/run-tests.sh`.
 
 **Tests:**
 
