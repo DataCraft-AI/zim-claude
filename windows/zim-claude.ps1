@@ -58,10 +58,19 @@ if ($env:ZIM_CLAUDE_BIN) {
   $cmd = Get-Command claude -ErrorAction SilentlyContinue
   if ($cmd) { $ClaudeBin = $cmd.Source }
   else {
-    # The native installer's per-user location, in case PATH has not been
-    # refreshed in this session yet.
-    $guess = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
-    if (Test-Path -LiteralPath $guess) { $ClaudeBin = $guess } else { $ClaudeBin = $null }
+    # PATH has not been refreshed in this session. Look where Claude Code's
+    # installers actually put it rather than failing: a terminal opened before
+    # the installer ran has a stale PATH, and being told to open a new one is
+    # a poor answer when the binary is sitting right there.
+    $candidates = @(
+      (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+      (Join-Path $env:APPDATA 'npm\claude.cmd'),
+      (Join-Path $env:APPDATA 'Python\Scripts\claude.exe')
+    )
+    $ClaudeBin = $null
+    foreach ($c in $candidates) {
+      if (Test-Path -LiteralPath $c) { $ClaudeBin = $c; break }
+    }
   }
 }
 
