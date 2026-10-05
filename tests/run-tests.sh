@@ -115,10 +115,35 @@ if grep -q "start-proxies\.ps1" "$REPO/windows/zim-claude.ps1" 2>/dev/null; then
 else fail "zim-claude.ps1 does not reference start-proxies.ps1"; fi
 
 # Both .cmd shims must propagate the exit code, or failures are swallowed.
-for f in win-install.bat zim-claude.cmd; do
+for f in win-install.bat zim-claude.cmd start-proxies.cmd verify.cmd; do
   if grep -q 'exit /b %ERRORLEVEL%' "$REPO/windows/$f" 2>/dev/null; then
     pass "$f propagates ERRORLEVEL"
   else fail "$f does not propagate ERRORLEVEL"; fi
+done
+
+# Every .ps1 that a user is told to run needs a .cmd/.bat shim beside it.
+# A bare .ps1 cannot be run by name, and on a Windows client the default
+# execution policy is Restricted - so a documented `start-proxies.ps1 status`
+# is blocked outright. The shims pass -ExecutionPolicy Bypass, which is scoped
+# to that one invocation and is the only reason the documented forms work.
+# This drifted once already: start-proxies.ps1 and verify.ps1 shipped without
+# shims while the README documented them as directly runnable.
+for ps1 in "$REPO"/windows/*.ps1; do
+  [[ -f "$ps1" ]] || continue
+  base="$(basename "$ps1" .ps1)"
+  if [[ -f "$REPO/windows/$base.cmd" || -f "$REPO/windows/$base.bat" ]]; then
+    pass "windows/$base.ps1 has a shim"
+  else
+    fail "windows/$base.ps1 has no .cmd/.bat shim" \
+         "a bare .ps1 is blocked by the default Windows execution policy"
+  fi
+done
+
+# Each shim must pass -ExecutionPolicy Bypass, or it does not solve that.
+for f in win-install.bat zim-claude.cmd start-proxies.cmd verify.cmd; do
+  if grep -q -- '-ExecutionPolicy Bypass' "$REPO/windows/$f" 2>/dev/null; then
+    pass "$f passes -ExecutionPolicy Bypass"
+  else fail "$f does not pass -ExecutionPolicy Bypass"; fi
 done
 
 # The Windows scripts must not hardcode a user's home directory.
