@@ -428,14 +428,15 @@ function Add-UserPath {
     }
   }
 
-  # This script is a subprocess: it cannot change the PATH of the shell that
-  # launched it, even after writing the persisted value.
-  $sessionParts = @($env:Path -split ';')
+  # Make $Dir usable for the rest of THIS run. The script is a subprocess and
+  # cannot change the PATH of the shell that launched it — but it can fix its
+  # own, which is what makes the proxy start below and the closing
+  # "Try: zim-claude --version" actually work instead of failing with
+  # "not recognized".
+  $sessionParts = @($env:Path -split ';' | Where-Object { $_ -ne '' })
   if ($sessionParts -notcontains $Dir) {
-    Write-Warn "$Dir is not on PATH in THIS session."
-    Write-Warn "For this window, run:"
-    Write-Warn "    `$env:Path = `"$Dir;`$env:Path`""
-    Write-Warn "A new terminal will pick it up on its own."
+    $env:Path = "$Dir;$env:Path"
+    Write-Say "$Dir prepended to PATH for this run"
   }
 }
 
