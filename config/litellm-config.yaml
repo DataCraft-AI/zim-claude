@@ -4,3 +4,13 @@ model_list:
       model: openai/deepseek-ai/DeepSeek-V4.1-Flash
       api_base: https://api.tokenjuice.ai/v1
       api_key: os.environ/ANTHROPIC_AUTH_TOKEN
+
+# LiteLLM >= 1.104.0 refuses to boot a proxy with no master key (an
+# unauthenticated proxy relaying to a paid upstream is an open relay).
+#
+# The master key MUST be the token Claude Code already sends as
+# `Authorization: Bearer ...` — that is ANTHROPIC_AUTH_TOKEN, set by
+# install.sh in the env file. Any other value would start the proxy but
+# 401 every request. os.environ/ keeps the secret out of this file.
+general_settings:
+  master_key: os.environ/ANTHROPIC_AUTH_TOKEN
