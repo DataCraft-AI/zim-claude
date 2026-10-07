@@ -88,7 +88,13 @@ The installer checks for each of these and offers to install anything missing.
 |---|---|
 | `bash`, `curl`, `base64` | required — the installer reports and exits |
 | Claude Code (`claude`) | offers `curl -fsSL https://claude.ai/install.sh \| bash` |
-| `litellm` | offers `pip install --user 'litellm[proxy]'` |
+| `litellm` | offers to build a private virtualenv containing it |
+
+**You do not need litellm, pip, or a writable system Python.** If no `litellm` is
+found, the installer creates a virtualenv at `~/.local/share/zim-claude/venv` and
+installs `litellm[proxy]` and `uvloop` into it. Nothing is activated by hand and no
+`--break-system-packages` is involved. If you already have a `litellm` on `PATH` or in
+`~/.local/bin`, it is reused and no venv is built.
 
 Claude Code uses Anthropic's official installer rather than `npm install -g`: no Node
 dependency, and it sets up the launcher and shell integration itself. It is run
@@ -96,23 +102,23 @@ dependency, and it sets up the launcher and shell integration itself. It is run
 detects sudo, so running it under sudo would guarantee failure.
 
 <details>
-<summary><b>If <code>python3</code> has no pip</b></summary>
+<summary><b>If <code>python3</code> has no <code>pip</code> or no <code>venv</code></b></summary>
 
-The installer cannot install litellm for you. This is the default on Arch, where
-`python` ships without pip, and the old advice here (`python3 -m pip install ...`) failed
-with `No module named pip` and installed nothing. The installer detects the platform and
-prints the command for yours:
+Neither is needed. `python3 -m venv` bootstraps its own `pip` from `ensurepip`, so a
+Python with no system pip still builds the proxy venv — this is the default on Arch,
+where `python` ships without pip. The old advice here (`python3 -m pip install ...`)
+failed with `No module named pip` and installed nothing; the venv path avoids that
+entirely.
 
-| Platform | Command |
+`venv` itself is the one thing that must be present. Debian/Ubuntu split it out of the
+interpreter package, and the installer detects that and names the fix:
+
+| Platform | If `python3 -m venv` is missing |
 |---|---|
-| Arch | `sudo pacman -S python-pip` |
-| Debian/Ubuntu | `sudo apt install python3-pip` |
-| Termux | `pkg install python` |
-| Fedora | `sudo dnf install python3-pip` |
+| Debian/Ubuntu | `sudo apt install python3-venv` |
 
-`pipx install 'litellm[proxy]'` is the better option for a CLI like litellm — it puts it
-in its own venv and on `PATH`. The Debian-only `--break-system-packages` flag is passed
-only on Debian/Ubuntu; Arch's pip rejects it.
+`pipx install 'litellm[proxy]'` also works if you prefer it — `start-litellm.sh` uses
+whatever litellm it finds first, so a pipx install is picked up and no venv is built.
 
 </details>
 
@@ -139,6 +145,7 @@ directory to `PATH`.)
 | `~/.local/bin/start-litellm.sh` | proxy manager: `start`/`stop`/`restart`/`status`/`logs` |
 | `~/claude-source/deepseek-claude` | the env profile (mode 600) |
 | `~/litellm-config.yaml` | LiteLLM proxy config |
+| `~/.local/share/zim-claude/venv/` | the proxy's private virtualenv (litellm + uvloop) |
 | `~/.local/share/zim-claude/` | install state + backups (mode 700) |
 
 Anything it would overwrite is backed up first, under
@@ -153,13 +160,21 @@ Anything it would overwrite is backed up first, under
 ./install.sh --force        overwrite files you have hand-edited (still backs up)
 ./install.sh --no-rc        don't touch ~/.bashrc
 ./install.sh --start        start the proxy when done
+./install.sh --no-venv      never build the proxy virtualenv
 ```
 
 Re-running `install.sh` is safe and idempotent — it compares file contents and skips
-anything already up to date.
+anything already up to date, and a venv that already holds litellm is left alone.
+
+Building the venv downloads a few hundred megabytes, so it is **asked about, never
+assumed**. In a non-interactive run (`curl … | bash`, CI) there is no terminal to ask,
+so it is skipped and the installer says so — the CLI half still installs. Re-run
+`./install.sh` from a terminal to build it, or use `--no-venv` to skip the question.
 
 `--uninstall` removes the files it installed, but **only if you haven't edited them**,
-and never touches your env profile or `~/litellm-config.yaml`.
+and never touches your env profile or `~/litellm-config.yaml`. It removes the proxy
+virtualenv too — but only one this installer built; a venv you made yourself is left
+in place.
 
 ---
 
@@ -374,6 +389,14 @@ start-litellm.sh stop
 You normally never need these — `zim-claude` health-checks `localhost:4000` and starts
 the proxy if it's down. The check costs ~8 ms when the proxy is already up.
 
+`start-litellm.sh` finds litellm in this order, so an existing install is always
+preferred over the private venv:
+
+1. `$LITELLM_BIN`, if you set it
+2. `litellm` on `PATH`
+3. `~/.local/bin/litellm` (a `--user` install, not always on `PATH`)
+4. `~/.local/share/zim-claude/venv/bin/litellm` — the venv `install.sh` builds
+
 ---
 
 ## Configuration
@@ -387,6 +410,8 @@ through environment variables:
 | `LITELLM_PORT` | `4000` | proxy port |
 | `LITELLM_LOG` | `/tmp/litellm-proxy.log` | proxy log |
 | `LITELLM_SERVICE` | `<install dir>/start-litellm.sh` | proxy manager |
+| `LITELLM_BIN` | (auto-detected) | pin an exact litellm binary |
+| `ZIM_CLAUDE_VENV` | `~/.local/share/zim-claude/venv` | where to look for the venv |
 | `ZIM_CLAUDE_BIN` | `claude` on `PATH` | which claude to run |
 | `ZIM_CLAUDE_NO_PROXY` | `0` | set to `1` to never touch the proxy |
 | `ZIM_CLAUDE_REQUIRE_PROXY` | `0` | set to `1` to hard-fail if the proxy is down |
