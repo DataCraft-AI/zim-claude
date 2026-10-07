@@ -17,7 +17,23 @@ CONFIG="${LITELLM_CONFIG:-$HOME/litellm-config.yaml}"
 PORT="${LITELLM_PORT:-4000}"
 LOG="${LITELLM_LOG:-/tmp/litellm-proxy.log}"
 PID_FILE="${LITELLM_PID_FILE:-/tmp/litellm-proxy.pid}"
-LITELLM_BIN="${LITELLM_BIN:-$(command -v litellm 2>/dev/null || echo "$HOME/.local/bin/litellm")}"
+
+# Where litellm comes from, in priority order:
+#   1. $LITELLM_BIN, if you set it
+#   2. litellm on PATH
+#   3. ~/.local/bin/litellm (a --user install, not always on PATH)
+#   4. the virtualenv install.sh builds — self-contained, no system Python
+# Whatever is found first wins, so an existing global litellm keeps being used
+# and the venv is only a fallback.
+if [[ -z "${LITELLM_BIN:-}" ]]; then
+  LITELLM_BIN="$(command -v litellm 2>/dev/null || true)"
+fi
+if [[ -z "$LITELLM_BIN" ]]; then
+  for _c in "$HOME/.local/bin/litellm" \
+            "${ZIM_CLAUDE_VENV:-$HOME/.local/share/zim-claude/venv}/bin/litellm"; do
+    [[ -x "$_c" ]] && LITELLM_BIN="$_c" && break
+  done
+fi
 # --------------------------------------------------------------------
 
 log() { printf '\033[36m[liteLLM]\033[0m %s\n' "$*"; }
@@ -72,7 +88,10 @@ do_start() {
     err "run '$0 restart' (or stop any stray 'litellm --config' process) first."
     exit 1
   fi
-  [[ -x "$LITELLM_BIN" ]] || { err "litellm not found at '$LITELLM_BIN'. Install: pip install --break-system-packages 'litellm[proxy]'"; exit 1; }
+  [[ -x "$LITELLM_BIN" ]] || { err "litellm not found. Install it with one of:
+       re-run the zim-claude installer (builds a private virtualenv), or
+       pipx install 'litellm[proxy]'
+     Looked on PATH, in ~/.local/bin, and in ${ZIM_CLAUDE_VENV:-$HOME/.local/share/zim-claude/venv}/bin."; exit 1; }
   [[ -f "$CONFIG" ]]      || { err "config not found: $CONFIG"; exit 1; }
   [[ -f "$ENV_FILE" ]]    || { err "env file not found: $ENV_FILE"; exit 1; }
 
