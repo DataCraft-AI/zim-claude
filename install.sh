@@ -207,25 +207,9 @@ pkg_manager() {
   fi
 }
 
-# How to get pip, when `python3 -m pip` is missing. Arch ships python without
-# pip, which is why the old advice (`python3 -m pip install ...`) failed with
-# "No module named pip" instead of installing anything.
-pip_hint() {
-  case "$(pkg_manager)" in
-    pacman) echo "sudo pacman -S python-pip" ;;
-    apt)    echo "sudo apt install python3-pip" ;;
-    termux) echo "pkg install python" ;;
-    dnf)    echo "sudo dnf install python3-pip" ;;
-    *)      echo "install pip for python3 using your platform's package manager" ;;
-  esac
-}
-
-have_pip() { python3 -m pip --version >/dev/null 2>&1; }
-
 # ask_yes <name> <display-command> — prompt only; 0 if the user agreed.
-# Split out from ask_install because not every install is a plain argv exec:
-# the Claude Code installer is a shell pipeline, which cannot be passed as
-# arguments to a function.
+# It only asks: the caller runs the command, because the Claude Code installer
+# is a shell pipeline and cannot be passed as arguments to a function.
 ask_yes() {
   local name="$1" display="$2" reply=""
 
@@ -367,14 +351,6 @@ ensure_proxy_venv() {
   fi
 
   build_proxy_venv || { PREREQ_FAILED=1; return 1; }
-}
-
-ask_install() {   # ask_install <name> <command...>
-  local name="$1"; shift
-  ask_yes "$name" "$*" || return 1
-  say "running: $*"
-  if "$@"; then ok "$name installed."; return 0
-  else warn "$name install failed — continuing."; return 1; fi
 }
 
 check_prereqs() {
