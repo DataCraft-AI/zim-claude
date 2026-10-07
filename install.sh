@@ -7,6 +7,7 @@
 #   ./install.sh --force        overwrite files you have hand-edited (still backs up)
 #   ./install.sh --no-rc        don't touch ~/.bashrc
 #   ./install.sh --start        start the LiteLLM proxy when done
+#   ./install.sh --no-venv      never build the proxy virtualenv
 #   ./install.sh --help
 #
 # Everything is derived from $HOME, so this works for any user on any machine.
@@ -47,7 +48,7 @@ MARKER_END="# <<< zim-claude <<<"
 # --- flags -------------------------------------------------------------------
 DRY_RUN=0 UNINSTALL=0 FORCE=0 TOUCH_RC=1 DO_START=0 DO_VENV=1
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while (($#)); do
   case "$1" in
@@ -56,6 +57,7 @@ while (($#)); do
     --force)     FORCE=1 ;;
     --no-rc)     TOUCH_RC=0 ;;
     --start)     DO_START=1 ;;
+    --no-venv)   DO_VENV=0 ;;
     -h|--help)   usage; exit 0 ;;
     *) printf 'unknown option: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
