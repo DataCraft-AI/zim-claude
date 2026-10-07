@@ -530,7 +530,21 @@ do_uninstall() {
     done <"$STATE_FILE"
   fi
 
-  # 4. Never touch user data. The env file is a credential and
+  # 4. The proxy virtualenv, if we built one. The stamp is written only by
+  #    build_proxy_venv, so its presence is exactly "this installer made it" —
+  #    a venv the user provisioned themselves has no stamp and is left alone.
+  #    (The venv is deliberately NOT in the state file: that table tracks plain
+  #    files, and this is a directory.)
+  if [[ -d "$PROXY_VENV" ]]; then
+    if [[ -f "$REQ_STAMP" ]]; then
+      say "removing the proxy virtualenv: $PROXY_VENV"
+      run rm -rf -- "$PROXY_VENV"
+    else
+      say "keeping $PROXY_VENV (not created by this installer)"
+    fi
+  fi
+
+  # 5. Never touch user data. The env file is a credential and
   #    ~/claude-source/ may also hold unrelated profiles, so both stay put.
   say "keeping $ENV_FILE (your credential — delete it yourself if you want)"
   (( DRY_RUN )) && return 0
