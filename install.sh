@@ -30,13 +30,22 @@ STATE_FILE="$STATE_DIR/installed.tsv"
 BACKUP_ROOT="$STATE_DIR/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
+# The proxy gets its OWN virtualenv, built here rather than pip-installed into
+# the system Python — no distro-flag override, nothing to activate by hand.
+# scripts/start-litellm.sh ships verbatim and looks for exactly this path, so
+# the two files must agree on it (and neither may hardcode $HOME).
+PROXY_VENV="$STATE_DIR/venv"
+PROXY_PY="$PROXY_VENV/bin/python"
+PROXY_LITELLM="$PROXY_VENV/bin/litellm"
+REQ_STAMP="$PROXY_VENV/.litellm-req"
+
 ENVD_DIR="$HOME/.config/environment.d"
 ENVD_CONF="$ENVD_DIR/zim-claude.conf"
 MARKER_BEGIN="# >>> zim-claude >>>"
 MARKER_END="# <<< zim-claude <<<"
 
 # --- flags -------------------------------------------------------------------
-DRY_RUN=0 UNINSTALL=0 FORCE=0 TOUCH_RC=1 DO_START=0
+DRY_RUN=0 UNINSTALL=0 FORCE=0 TOUCH_RC=1 DO_START=0 DO_VENV=1
 
 usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -235,6 +244,127 @@ ask_yes() {
     [yY]|[yY][eE][sS]) return 0 ;;
     *) warn "skipped $name."; return 1 ;;
   esac
+}
+
+# ask_consent <name> <what> — prompt only; 0 if the user agreed.
+#
+# Unlike ask_yes this never runs anything and never fails an install: it only
+# asks permission for a step that is optional (building the proxy venv). With
+# no controlling terminal it DECLINES — a `curl | bash` run must not silently
+# download a few hundred megabytes of wheels, so a piped install skips the venv
+# and says how to get it. The plain answer still works with no flag at all.
+ask_consent() {
+  local name="$1" what="$2" reply=""
+
+  if ! { exec 3</dev/tty; } 2>/dev/null; then
+    warn "no terminal to ask about $name — skipping."
+    warn "  $what"
+    return 1
+  fi
+
+  printf '\033[33m[!]\033[0m %s — %s\n      [y/N] ' "$name" "$what" >&2
+  read -r reply <&3 || reply=""
+  exec 3<&-
+  case "$reply" in
+    [yY]|[yY][eE][sS]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# --- the proxy's own virtualenv ----------------------------------------------
+
+# Two floors in these pins are load-bearing. Do not lower them.
+#
+#   litellm[proxy]>=1.100.1 — older litellm only served Anthropic /v1/messages
+#     for provider == anthropic. This proxy registers its models as openai/*,
+#     so the one route Claude Code actually uses returned 500 while
+#     /v1/chat/completions kept working — a proxy that looks healthy.
+#   uvloop>=0.22.1 — litellm hardcodes uvicorn's loop to uvloop on Linux
+#     (litellm/proxy/proxy_cli.py, no flag or env var overrides it). uvloop
+#     below 0.22 imports BaseDefaultEventLoopPolicy, which Python 3.14 removed,
+#     so the proxy dies at startup and never binds its port.
+LITELLM_REQ='litellm[proxy]>=1.100.1 uvloop>=0.22.1'
+
+proxy_venv_has_litellm() { [[ -x "$PROXY_LITELLM" ]]; }
+
+build_proxy_venv() {   # create the venv and install litellm into it
+  run mkdir -p -- "$STATE_DIR"
+  run chmod 700 -- "$STATE_DIR"
+  say "creating virtualenv: $PROXY_VENV"
+  run python3 -m venv "$PROXY_VENV"
+
+  if (( DRY_RUN )); then
+    printf '    would: %s -m pip install %s\n' "$PROXY_PY" "$LITELLM_REQ"
+    return 0
+  fi
+
+  # Check the venv came out usable before leaning on it. This function is
+  # reached through a `|| ...` at its call site, so `set -e` does not apply
+  # inside it — an unchecked failure here would fall through to a pip error
+  # about a missing interpreter instead of saying what actually went wrong.
+  if [[ ! -x "$PROXY_PY" ]]; then
+    err "python3 -m venv did not produce $PROXY_PY"
+    return 1
+  fi
+
+  # Upgrade pip first: an old pip on a brand-new Python can fail to find a
+  # wheel it should have. Never fatal — the install below is the real step.
+  "$PROXY_PY" -m pip install --quiet --disable-pip-version-check --upgrade pip || true
+
+  # shellcheck disable=SC2086  # LITELLM_REQ is a deliberate two-package list
+  if "$PROXY_PY" -m pip install --quiet --disable-pip-version-check $LITELLM_REQ </dev/null; then
+    proxy_venv_has_litellm || { err "pip finished but $PROXY_LITELLM is missing"; return 1; }
+    printf '%s\n' "$LITELLM_REQ" >"$REQ_STAMP"
+    ok "litellm installed into $PROXY_VENV"
+    return 0
+  fi
+  err "could not install litellm into $PROXY_VENV"
+  return 1
+}
+
+# Called only when no litellm exists anywhere. Idempotent: a venv that already
+# has litellm is reported and left alone, so re-running install.sh never
+# rebuilds it.
+ensure_proxy_venv() {
+  if (( ! DO_VENV )); then
+    warn "proxy virtualenv disabled (--no-venv), and no litellm is installed."
+    warn "  the proxy cannot start until you install one:"
+    warn "    pipx install 'litellm[proxy]'"
+    PREREQ_FAILED=1
+    return 1
+  fi
+
+  if proxy_venv_has_litellm; then
+    say "found litellm: $PROXY_LITELLM (existing virtualenv)"
+    return 0
+  fi
+
+  if ! python3 -m venv --help >/dev/null 2>&1; then
+    # Debian/Ubuntu split venv out of the interpreter package, so `python3 -m
+    # venv` can be missing on a system that has python3 and pip. Name the fix
+    # for this platform rather than failing with a bare traceback.
+    warn "python3 has no venv module, so the proxy virtualenv cannot be built."
+    case "$(pkg_manager)" in
+      apt) warn "    sudo apt install python3-venv" ;;
+      *)   warn "    install your platform's python3-venv package" ;;
+    esac
+    warn "  or install litellm yourself: pipx install 'litellm[proxy]'"
+    PREREQ_FAILED=1
+    return 1
+  fi
+
+  # A `curl | bash` run has no terminal: ask_consent declines and the install
+  # still succeeds for the CLI side. That is the deliberate trade — an
+  # unattended run must not download litellm's dependency tree unasked.
+  if ! ask_consent "LiteLLM proxy virtualenv" \
+       "install litellm + uvloop into $PROXY_VENV (downloads a few hundred MB)"; then
+    warn "skipping the proxy virtualenv."
+    warn "  the CLI works, but the :4000 proxy has no litellm to run."
+    warn "  build it later with:  ./install.sh"
+    return 1
+  fi
+
+  build_proxy_venv || { PREREQ_FAILED=1; return 1; }
 }
 
 ask_install() {   # ask_install <name> <command...>
