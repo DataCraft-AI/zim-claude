@@ -21,7 +21,18 @@ CONFIG="${CLAUDE_DESKTOP_CONFIG:-$DIR/litellm-config.desktop.yaml}"
 PORT="${CLAUDE_DESKTOP_PORT:-4002}"
 LOG="${CLAUDE_DESKTOP_LOG:-/tmp/litellm-desktop.log}"
 PID_FILE="${CLAUDE_DESKTOP_PID_FILE:-/tmp/litellm-desktop.pid}"
-LITELLM_BIN="${LITELLM_BIN:-$(command -v litellm 2>/dev/null || echo "$HOME/.local/bin/litellm")}"
+# Same resolution order as the CLI proxy (scripts/start-litellm.sh): an
+# explicit override, then PATH, then ~/.local/bin, then the virtualenv that
+# zim-claude's install.sh builds. Both proxies therefore share one litellm.
+if [[ -z "${LITELLM_BIN:-}" ]]; then
+  LITELLM_BIN="$(command -v litellm 2>/dev/null || true)"
+fi
+if [[ -z "$LITELLM_BIN" ]]; then
+  for _c in "$HOME/.local/bin/litellm" \
+            "${ZIM_CLAUDE_VENV:-$HOME/.local/share/zim-claude/venv}/bin/litellm"; do
+    [[ -x "$_c" ]] && LITELLM_BIN="$_c" && break
+  done
+fi
 GATEWAY_KEY="${CLAUDE_DESKTOP_LITELLM_KEY:-sk-claude-desktop-local}"
 # --------------------------------------------------------------------
 
@@ -70,7 +81,7 @@ do_start() {
     err "port :$PORT is answering but no pid file exists; run '$0 restart'."
     exit 1
   fi
-  [[ -x "$LITELLM_BIN" ]] || { err "litellm not found at '$LITELLM_BIN'. run ./install.sh"; exit 1; }
+  [[ -x "$LITELLM_BIN" ]] || { err "litellm not found. Run zim-claude's ./install.sh (builds a private virtualenv), or: pipx install 'litellm[proxy]'"; exit 1; }
   [[ -f "$CONFIG" ]]      || { err "config not found: $CONFIG"; exit 1; }
   [[ -f "$ENV_FILE" ]]    || { err "env file not found: $ENV_FILE"; exit 1; }
 

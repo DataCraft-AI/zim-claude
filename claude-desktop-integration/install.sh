@@ -47,8 +47,19 @@ fi
 
 # --- 1. prerequisites ---------------------------------------------------------
 say "checking prerequisites"
-LITELLM_BIN="$(command -v litellm 2>/dev/null || echo "$HOME/.local/bin/litellm")"
-[[ -x "$LITELLM_BIN" ]] || { err "litellm not found. Install: pipx install 'litellm[proxy]'"; exit 1; }
+# Same resolution order as start-desktop-proxy.sh: PATH, then ~/.local/bin,
+# then the virtualenv zim-claude's install.sh builds.
+LITELLM_BIN="$(command -v litellm 2>/dev/null || true)"
+if [[ -z "$LITELLM_BIN" && -x "$HOME/.local/bin/litellm" ]]; then
+  LITELLM_BIN="$HOME/.local/bin/litellm"
+fi
+if [[ -z "$LITELLM_BIN" && -x "$HOME/.local/share/zim-claude/venv/bin/litellm" ]]; then
+  LITELLM_BIN="$HOME/.local/share/zim-claude/venv/bin/litellm"
+fi
+if [[ -z "$LITELLM_BIN" ]]; then
+  err "litellm not found. Run zim-claude's install.sh first (it builds a private virtualenv), or: pipx install 'litellm[proxy]'"
+  exit 1
+fi
 ok "litellm: $LITELLM_BIN"
 
 ENV_FILE="${LITELLM_ENV_FILE:-$HOME/claude-source/deepseek-claude}"
