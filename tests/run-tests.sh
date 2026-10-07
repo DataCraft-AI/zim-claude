@@ -68,6 +68,43 @@ if hits="$(grep -rn '/home/zim' "$REPO" --exclude-dir=.git --exclude-dir=tests 2
   fail "no hardcoded /home/zim" "$hits"
 else pass "no hardcoded /home/zim"; fi
 
+# --- the proxy virtualenv ---
+# install.sh builds the venv and start-litellm.sh looks for it. They are two
+# separate files that a future edit could easily move apart, and the failure is
+# silent: the installer would build a venv the proxy never looks in, and the
+# proxy would report "litellm not found" on a machine that just installed it.
+#
+# install.sh composes the path from $STATE_DIR, so the literal string only ever
+# appears in start-litellm.sh. Assert both halves: STATE_DIR is where the proxy
+# looks, and the venv hangs off it.
+if grep -qF 'STATE_DIR="$HOME/.local/share/zim-claude"' "$REPO/install.sh" &&
+   grep -qF 'PROXY_VENV="$STATE_DIR/venv"' "$REPO/install.sh" &&
+   grep -qF '$HOME/.local/share/zim-claude/venv' "$REPO/scripts/start-litellm.sh"; then
+  pass "venv path agreed by install.sh and start-litellm.sh"
+else
+  fail "venv path disagrees between install.sh and start-litellm.sh" \
+       "install.sh would build a venv the proxy never looks for"
+fi
+
+# Both floors are load-bearing, and lowering either fails in a way that still
+# looks healthy — so assert them by name rather than trusting a future edit.
+#   litellm>=1.100.1: older litellm 500s on /v1/messages for openai/* models
+#     (the only route Claude Code uses) while /v1/chat/completions keeps working.
+#   uvloop>=0.22.1: below that it imports BaseDefaultEventLoopPolicy, removed in
+#     Python 3.14, so the proxy dies at startup and never binds its port.
+if grep -qF 'litellm[proxy]>=1.100.1' "$REPO/install.sh"; then
+  pass "install.sh pins litellm[proxy]>=1.100.1"
+else fail "install.sh lost the litellm>=1.100.1 floor" "openai/* models would 500 on /v1/messages"; fi
+if grep -qF 'uvloop>=0.22.1' "$REPO/install.sh"; then
+  pass "install.sh pins uvloop>=0.22.1"
+else fail "install.sh lost the uvloop>=0.22.1 floor" "the proxy would die at startup on Python 3.14"; fi
+
+# The venv removes the reason --break-system-packages was ever needed. Leaving
+# that advice behind would send users back to mutating the system Python.
+if hits="$(grep -rn 'break-system-packages' "$REPO/install.sh" "$REPO/scripts" 2>/dev/null)"; then
+  fail "no --break-system-packages advice remains" "$hits"
+else pass "no --break-system-packages advice remains"; fi
+
 # The token ships in plaintext (config/token) by design — it has to survive a
 # fresh clone, and a base64 blob that GitHub's web uploader silently skips does
 # not. What matters is that the file is present, non-empty, and tracked.
