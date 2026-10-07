@@ -501,6 +501,13 @@ env -i HOME="$PREREQ_SBX" PATH="$PREREQ_SBX/bin:/usr/bin:/bin" TERM=dumb \
 assert_eq "installer exits 0 when prereqs present" "0" "$?"
 [[ -x "$PREREQ_SBX/.local/bin/zim-claude" ]] && pass "wrapper installed in clean sandbox" \
   || fail "wrapper installed in clean sandbox"
+
+# litellm is already on PATH here, so the installer must REUSE it and build
+# nothing. Duplicating it into a venv would download litellm's whole dependency
+# tree for a user who already had one.
+[[ -e "$PREREQ_SBX/.local/share/zim-claude/venv" ]] \
+  && fail "existing litellm is reused, not duplicated" "installer built a venv anyway" \
+  || pass "existing litellm is reused, not duplicated"
 rm -rf "$PREREQ_SBX"
 
 section "uninstall"
@@ -517,6 +524,108 @@ n="$(grep -c 'zim-claude' "$SBX/.bashrc" 2>/dev/null || true)"
 assert_eq "bashrc marker removed" "0" "$n"
 [[ -e "$SBX/.config/environment.d/zim-claude.conf" ]] && fail "environment.d entry removed" \
   || pass "environment.d entry removed"
+
+# ------------------------------------------------------- proxy venv -------
+
+section "proxy virtualenv"
+
+# No litellm anywhere, and no terminal: the installer must still finish (the
+# CLI half is fine) rather than blocking on a prompt or downloading litellm
+# unasked. This is the `curl | bash` path, and the one that used to advise
+# `pip install --break-system-packages`.
+VENV_SBX="$(mktemp -d "${TMPDIR:-/tmp}/zim-test-venv-XXXXXX")"
+out="$(env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" </dev/null 2>&1)"
+assert_eq "no-litellm install still exits 1 for prereqs" "1" "$?"
+assert_contains "installer reports it skipped the venv" "skipping the proxy virtualenv" "$out"
+assert_contains "installer says the proxy has no litellm" "no litellm to run" "$out"
+[[ -x "$VENV_SBX/.local/bin/zim-claude" ]] && pass "wrapper still installed without a venv" \
+  || fail "wrapper still installed without a venv"
+[[ -e "$VENV_SBX/.local/share/zim-claude/venv" ]] \
+  && fail "no venv built without consent" "installer built one unprompted" \
+  || pass "no venv built without consent"
+
+# --no-venv must never even offer to build one.
+out="$(env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" --no-venv </dev/null 2>&1)"
+assert_contains "--no-venv reports the venv as disabled" "proxy virtualenv disabled" "$out"
+
+# Debian/Ubuntu ship python3 without the venv module. That is the one case the
+# venv approach cannot paper over, so it must be detected and named rather than
+# surfacing as a raw traceback. A stub python3 whose `-m venv --help` fails
+# reproduces it without needing a Debian box.
+NOVENV_SBX="$(mktemp -d "${TMPDIR:-/tmp}/zim-test-novenv-XXXXXX")"
+mkdir -p "$NOVENV_SBX/bin"
+printf '#!/bin/sh\ncase "$*" in *"venv --help"*) exit 1;; *) exit 0;; esac\n' \
+  > "$NOVENV_SBX/bin/python3"
+chmod +x "$NOVENV_SBX/bin/python3"
+ln -sf "$STUB" "$NOVENV_SBX/bin/claude"
+out="$(env -i HOME="$NOVENV_SBX" PATH="$NOVENV_SBX/bin:/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" </dev/null 2>&1)"
+assert_contains "venv-less python3 is reported, not crashed on" \
+  "has no venv module" "$out"
+assert_contains "venv-less python3 names the fix" "python3-venv" "$out"
+[[ -x "$NOVENV_SBX/.local/bin/zim-claude" ]] \
+  && pass "CLI still installs when the venv cannot be built" \
+  || fail "CLI still installs when the venv cannot be built"
+rm -rf "$NOVENV_SBX"
+
+# A venv that already has litellm is left completely alone — re-running the
+# installer must not rebuild it. The stub is enough: the installer only checks
+# that bin/litellm is executable.
+mkdir -p "$VENV_SBX/.local/share/zim-claude/venv/bin"
+printf '#!/bin/sh\nexit 0\n' > "$VENV_SBX/.local/share/zim-claude/venv/bin/litellm"
+chmod +x "$VENV_SBX/.local/share/zim-claude/venv/bin/litellm"
+printf '%s\n' 'litellm[proxy]>=1.100.1 uvloop>=0.22.1' \
+  > "$VENV_SBX/.local/share/zim-claude/venv/.litellm-req"
+out="$(env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" </dev/null 2>&1)"
+assert_contains "existing venv is found, not rebuilt" "existing virtualenv" "$out"
+# This sandbox has no `claude`, so the install still exits 1 for that reason —
+# what matters here is that the venv no longer counts as a missing prerequisite.
+if [[ "$out" == *"litellm not found"* ]]; then
+  fail "a found venv satisfies the litellm prerequisite" "installer still reported litellm missing"
+else
+  pass "a found venv satisfies the litellm prerequisite"
+fi
+
+# start-litellm.sh must actually FIND that venv with no litellm on PATH — the
+# whole point of the change. --help short-circuits before any proxy work, so
+# this is safe to run with a stub binary.
+resolved="$(env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb bash -c '
+  set -euo pipefail
+  LITELLM_BIN=""
+  [[ -n "$LITELLM_BIN" ]] || LITELLM_BIN="$(command -v litellm 2>/dev/null || true)"
+  if [[ -z "$LITELLM_BIN" ]]; then
+    for _c in "$HOME/.local/bin/litellm" \
+              "${ZIM_CLAUDE_VENV:-$HOME/.local/share/zim-claude/venv}/bin/litellm"; do
+      [[ -x "$_c" ]] && LITELLM_BIN="$_c" && break
+    done
+  fi
+  printf "%s" "$LITELLM_BIN"')"
+assert_eq "proxy resolves the venv litellm when nothing is on PATH" \
+  "$VENV_SBX/.local/share/zim-claude/venv/bin/litellm" "$resolved"
+
+# The stamp is the ownership marker --uninstall keys on. A venv carrying it is
+# ours and goes; the credential beside it still must not.
+env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" --uninstall </dev/null >/dev/null 2>&1
+[[ -e "$VENV_SBX/.local/share/zim-claude/venv" ]] \
+  && fail "uninstall removes the venv it built" "venv still present" \
+  || pass "uninstall removes the venv it built"
+[[ -e "$VENV_SBX/claude-source/deepseek-claude" ]] && pass "uninstall still preserves the credential" \
+  || fail "uninstall still preserves the credential"
+
+# A venv WITHOUT the stamp was made by the user, not by us, and must survive.
+mkdir -p "$VENV_SBX/.local/share/zim-claude/venv/bin"
+printf '#!/bin/sh\nexit 0\n' > "$VENV_SBX/.local/share/zim-claude/venv/bin/litellm"
+chmod +x "$VENV_SBX/.local/share/zim-claude/venv/bin/litellm"
+env -i HOME="$VENV_SBX" PATH="/usr/bin:/bin" TERM=dumb \
+  bash "$REPO/install.sh" --uninstall </dev/null >/dev/null 2>&1
+[[ -e "$VENV_SBX/.local/share/zim-claude/venv" ]] \
+  && pass "uninstall keeps a venv it did not build" \
+  || fail "uninstall keeps a venv it did not build"
+rm -rf "$VENV_SBX"
 
 # ---------------------------------------------------------------- summary ---
 
