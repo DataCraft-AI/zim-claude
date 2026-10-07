@@ -35,8 +35,15 @@ Claude Desktop also imposes two rules the proxy has to obey:
    `tool_reference`, beta headers. The upstream is OpenAI-style, so the config sets
    `drop_params: true` to avoid HTTP 400s.
 
-Requirements met by this setup: LiteLLM ≥ v1.98.0 (for `GET /v1/models` discovery) and a
-gateway that implements `POST /v1/messages` — both true of LiteLLM here.
+Requirements met by this setup: LiteLLM ≥ v1.100.1 (for `GET /v1/models` discovery *and*
+`POST /v1/messages` on `openai/*`-registered models — see the note below) and a gateway
+that implements `POST /v1/messages`.
+
+> **LiteLLM ≥ v1.100.1 is a hard floor.** Older litellm only served `/v1/messages` when a
+> model's provider was `anthropic`. These models are registered as `openai/*`, so on older
+> litellm the route the app uses returns **500** while `/v1/chat/completions` keeps
+> working — a proxy that looks healthy and fails every request. zim-claude's `install.sh`
+> pins `litellm[proxy]>=1.100.1` for exactly this reason; don't lower it.
 
 ## Install
 
@@ -47,6 +54,12 @@ cd claude-desktop-integration
 
 That makes the scripts executable, starts the proxy on `:4002`, and prints the exact
 values to paste into Claude Desktop. It does **not** touch `:4000` or your shell config.
+
+**You do not need a global litellm.** This route shares the virtualenv that zim-claude's
+top-level `install.sh` builds at `~/.local/share/zim-claude/venv`, and looks for litellm
+in the same order that `start-litellm.sh` does (`$LITELLM_BIN` → `PATH` → `~/.local/bin`
+→ that venv). Run the top-level `./install.sh` first if you have no litellm at all; this
+one will tell you so if it finds none.
 
 ### Windows
 
