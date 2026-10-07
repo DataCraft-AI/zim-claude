@@ -509,6 +509,30 @@ odd message.
 string means the auth token wins — and it also clears any real `ANTHROPIC_API_KEY`
 inherited from the shell. Deleting that line breaks authentication.
 
+**The two pins in the proxy venv are floors, not preferences.** `install.sh` installs
+`litellm[proxy]>=1.100.1` and `uvloop>=0.22.1`, and lowering either produces a failure
+that still *looks* healthy, which is why `tests/run-tests.sh` asserts them by name:
+
+- **`litellm>=1.100.1`** — older litellm only served Anthropic `/v1/messages` when the
+  model's provider was `anthropic`. This proxy registers its models as `openai/*`, so the
+  one route Claude Code actually uses returned **500** while `/v1/chat/completions` kept
+  working — the proxy looked fine and every request failed.
+- **`uvloop>=0.22.1`** — litellm hardcodes uvicorn's event loop to uvloop on Linux
+  (`litellm/proxy/proxy_cli.py`; no flag or env var overrides it). uvloop below 0.22
+  imports `BaseDefaultEventLoopPolicy`, which **Python 3.14 removed**, so the proxy dies
+  at startup and never binds its port.
+
+**The proxy venv is separate from anything else on purpose.** `litellm[proxy]` requires
+`rich<14.0`, while `textual` 8.x requires `rich>=14.2` — an environment holding both
+cannot resolve at all. zim-claude has no `textual`, but if the app side ever grows
+dependencies, keep them out of this venv rather than merging the two.
+
+**A venv is built on the target machine, never shipped.** `pyvenv.cfg`, the `bin/python`
+symlink and every console-script shebang bake in absolute paths and one exact base
+interpreter, so a committed venv is not portable. `install.sh` builds it under
+`$HOME/.local/share/zim-claude/venv` — outside the checkout, so it can never be
+committed by accident.
+
 **`scripts/start-litellm.sh` and `config/litellm-config.yaml` ship byte-for-byte
 unmodified**, which is why their `$HOME`-relative defaults line up with where the
 installer places things. If you edit them, keep them identical to the working originals;
