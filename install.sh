@@ -414,29 +414,15 @@ check_prereqs() {
   fi
 
   if command -v litellm >/dev/null 2>&1; then
-    say "found litellm: $(command -v litellm)"
+    # Reuse it: a litellm that is already installed and on PATH is left exactly
+    # where it is. Nothing is duplicated into the venv.
+    say "found litellm: $(command -v litellm) — reusing it"
   elif [[ -x "$HOME/.local/bin/litellm" ]]; then
-    say "found litellm: $HOME/.local/bin/litellm (not currently on PATH)"
+    say "found litellm: $HOME/.local/bin/litellm — reusing it"
   else
-    warn "litellm not found."
-    if ! have_pip; then
-      # The old advice here was a bare `python3 -m pip install ...`, which on
-      # Arch (python ships without pip) fails with "No module named pip" and
-      # installs nothing. Tell the user how to get pip first, and point at
-      # pipx, which is the right tool for a CLI like litellm anyway.
-      warn "python3 has no pip, so litellm cannot be pip-installed yet."
-      warn "Get pip first:"
-      warn "    $(pip_hint)"
-      warn "Then re-run this installer, or install litellm with pipx:"
-      warn "    pipx install 'litellm[proxy]'"
-      PREREQ_FAILED=1
-    else
-      # --break-system-packages is a Debian/Ubuntu flag; Arch's pip rejects it
-      # outright, so only pass it where it is understood.
-      local pip_args=(install --user 'litellm[proxy]')
-      [[ "$(pkg_manager)" == "apt" ]] && pip_args=(install --user --break-system-packages 'litellm[proxy]')
-      ask_install "litellm" python3 -m pip "${pip_args[@]}" || PREREQ_FAILED=1
-    fi
+    # `|| ...` is load-bearing: this script runs under `set -e`, so a bare call
+    # would abort the whole install the moment the venv step declines or fails.
+    ensure_proxy_venv || PREREQ_FAILED=1
   fi
 }
 
