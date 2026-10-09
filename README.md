@@ -418,8 +418,42 @@ So the gateway route cannot clobber your setup, and plain `pi` / `omp` are uncha
 Same separation Claude Desktop's `-3p` profile gets.
 
 `zim-omp`'s profile overlays omp's global `config.yml` rather than replacing it, so your
-theme, web-search order and everything else still apply — only `modelRoles.default` and
-the `gateway` provider are added.
+theme, web-search order and everything else still apply — only the model roles and the
+`gateway` provider are added.
+
+### Every agent and subagent runs the default model
+
+Two layers keep this true, because either one alone leaks.
+
+**At the gateway**, `litellm-config.desktop.yaml` carries a `model_name: "*"` catch-all, so
+a request for *any* model name resolves to the same upstream. Without it, an agent that
+hardcodes a tier — Claude Code's bundled `claude-code-guide` asks for `claude-haiku-5-5` —
+gets `400: Invalid model name passed in model=claude-haiku-5-5`.
+
+**At the agent**, `zim-omp` pins all ten chat roles to the gateway model:
+
+```yaml
+modelRoles:
+  default: gateway/claude-opus-5-5
+  smol:    gateway/claude-opus-5-5
+  slow:    gateway/claude-opus-5-5
+  plan:    gateway/claude-opus-5-5
+  commit:  gateway/claude-opus-5-5
+  tiny:    gateway/claude-opus-5-5
+  memory:  gateway/claude-opus-5-5
+  task:    gateway/claude-opus-5-5   # what subagents run on
+  advisor: gateway/claude-opus-5-5
+  vision:  gateway/claude-opus-5-5
+```
+
+This matters because unset roles do not all fall back to `default`: `smol` and `slow` do,
+but `plan`, `commit`, `task` and `advisor` resolve through built-in *strong-model priority
+lists* that reach for Anthropic first. `task` is the one that decides subagents, so leaving
+it unset would send subagent work straight past the gateway. `pi` needs no equivalent — it
+has a single `defaultModel` and no role cascade.
+
+Verified end to end: a `task` subagent launched through `zim-omp` returned its payload with
+every hop landing on `/v1/chat/completions` at `:4002`.
 
 **No secret is written to disk.** `zim-pi`'s generated `models.json` holds
 `"apiKey": "$ZIM_PI_KEY"`, and `zim-omp`'s `models.yml` holds `apiKey: ZIM_OMP_KEY` — an

@@ -92,9 +92,23 @@ YML
 fi
 
 if [[ ! -f "$ZIM_OMP_AGENT_DIR/config.yml" ]]; then
+  # Every chat role pinned to the gateway model, so no agent or subagent can
+  # drift to another provider. Unset `smol`/`slow` would inherit `default`, but
+  # `plan`, `commit`, `task` and `advisor` fall back to built-in strong-model
+  # priority lists (Anthropic-first) — which would leave the gateway entirely.
+  # `task` is the one that matters most: it is what subagents run on.
   cat >"$ZIM_OMP_AGENT_DIR/config.yml" <<'YML'
 modelRoles:
   default: gateway/claude-opus-5-5
+  smol: gateway/claude-opus-5-5
+  slow: gateway/claude-opus-5-5
+  plan: gateway/claude-opus-5-5
+  commit: gateway/claude-opus-5-5
+  tiny: gateway/claude-opus-5-5
+  memory: gateway/claude-opus-5-5
+  task: gateway/claude-opus-5-5
+  advisor: gateway/claude-opus-5-5
+  vision: gateway/claude-opus-5-5
 YML
 fi
 
