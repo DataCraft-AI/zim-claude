@@ -242,6 +242,14 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
   `/v1/models`. A non-claude name is silently dropped by the app.
 - **Requests fail with 400.** The upstream rejected Anthropic-only fields — ensure
   `drop_params: true` is on the model entry (it is by default here).
+- **An occasional 400, `OpenAIException - {"message":"Invalid request"}`, then the session
+  recovers.** Check the traceback's URL before blaming `drop_params`: if it ends in
+  **`/v1/responses`**, LiteLLM 1.104.x sent the call to the OpenAI *Responses* API rather
+  than chat completions, and Token Juice rejected the body. That path bypasses
+  `drop_params` entirely, which is why the same request shape passes when replayed by hand
+  (both `?beta=true` and `stream:true` return 200). It is intermittent and self-healing —
+  one occurrence in forty requests, the session's next cycle succeeded. If it becomes
+  frequent, pin the litellm version rather than adding `drop_params` knobs.
 - **App can't reach the proxy.** Use `127.0.0.1` (not `localhost`) in the base URL, and
   check `./start-desktop-proxy.sh status`.
 - **Nothing changed after editing config.** `./start-desktop-proxy.sh restart`, then
