@@ -270,10 +270,12 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
 
   **Which effort values survive** matters for reproducing this. litellm buckets
   `thinking.budget_tokens` into an effort label (512/1024 → `low`, 2048 → `medium`,
-  4096 → `high`) and Token Juice accepts only `low`, `high` and `none` — it rejects
-  `minimal`, `medium` and `xhigh`. So a session reasoning with a 2048-token budget
-  fails every turn while a 512-token one passes, on the same config. `verify.sh`'s
-  check 4 pins `budget_tokens: 2048` for exactly this reason.
+  4096+ → `high`) and Token Juice accepts only `low`, `high` and `none` — it rejects
+  `minimal`, `medium` and `xhigh`. `thinking: {"type": "adaptive"}` is the other way in:
+  it maps to `medium` with no budget involved, and it does **not** trigger the Responses
+  reroute, so it fails on chat/completions instead. `verify.sh` check 4 covers both,
+  pinning `budget_tokens: 2048` for the first because a smaller budget buckets to `low`
+  and would pass even against a broken config.
 
   The config fixes both by (a) declaring the model `hosted_vllm/*` rather than
   `openai/*`, which keeps the call on chat/completions and out of the thinking rewrite,

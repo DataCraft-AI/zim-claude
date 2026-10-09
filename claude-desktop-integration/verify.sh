@@ -44,32 +44,41 @@ else
   head -c 600 /tmp/_verify_msg.json; echo
 fi
 
-# 4. the shape that used to 400. A plain request passes even when the reasoning
-#    routing is broken, so it proves nothing on its own: litellm only diverts to
-#    the Responses API (or leaks reasoning_effort) when the request carries
-#    thinking={"type":"enabled"}. Cowork/Chat turns omit it; Code turns send it.
+# 4. the shapes that used to 400. A plain request passes even when the reasoning
+#    routing is broken, so it proves nothing on its own. Two distinct leaks:
 #
-#    budget_tokens=2048 is load-bearing. litellm buckets the budget into an
-#    OpenAI effort label (512/1024 -> "low", 2048 -> "medium", 4096 -> "high")
-#    and Token Juice accepts only low/high/none — "medium" is one of the three
-#    it 400s on. A smaller budget passes even against a broken config, so this
-#    check would silently stop testing anything.
-hdr "4. thinking + tools + stream (the shape that used to 400)"
+#      enabled + budget 2048 -> effort "medium", and litellm also reroutes the
+#        call to the Responses API. Token Juice rejects "medium" there.
+#      adaptive -> effort "medium" with NO reroute, so it fails on the
+#        chat/completions path instead. This is Claude Code's current default,
+#        which is why the failure looked like every-turn rather than occasional.
+#
+#    budget_tokens=2048 is load-bearing: litellm buckets the budget into an
+#    effort label (512/1024 -> low, 2048 -> medium, 4096+ -> high) and Token
+#    Juice accepts only low/high/none. A smaller budget passes even against a
+#    broken config, so the check would silently stop testing anything.
+hdr "4. thinking + tools + stream (the shapes that used to 400)"
 tool='{"name":"Read","description":"Read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}'
-code="$(curl -s -o /tmp/_verify_think.json -w '%{http_code}' -X POST "$BASE/v1/messages?beta=true" \
-  -H "content-type: application/json" \
-  -H "x-api-key: $KEY" \
-  -d "{\"model\":\"$MODEL\",\"max_tokens\":512,\"stream\":true,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":2048},\"tools\":[$tool],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
-  --max-time 60 || true)"
-if [[ "$code" == "200" ]]; then
-  pass "HTTP 200"
-else
-  fail "HTTP $code — reasoning fields are reaching Token Juice"
-  head -c 600 /tmp/_verify_think.json; echo
-  echo "    Check the traceback URL in /tmp/litellm-desktop.log:"
-  echo "      .../v1/responses        -> model must not be declared openai/*"
-  echo "      .../v1/chat/completions -> add the reasoning fields to additional_drop_params"
-fi
+check_thinking() {
+  local label="$1" body="$2"
+  local c
+  c="$(curl -s -o /tmp/_verify_think.json -w '%{http_code}' -X POST "$BASE/v1/messages?beta=true" \
+    -H "content-type: application/json" -H "x-api-key: $KEY" \
+    -d "$body" --max-time 60 || true)"
+  if [[ "$c" == "200" ]]; then
+    pass "$label"
+  else
+    fail "$label — HTTP $c, reasoning fields are reaching Token Juice"
+    head -c 400 /tmp/_verify_think.json; echo
+    echo "    Check the traceback URL in /tmp/litellm-desktop.log:"
+    echo "      .../v1/responses        -> model must not be declared openai/*"
+    echo "      .../v1/chat/completions -> add the reasoning fields to additional_drop_params"
+  fi
+}
+check_thinking "thinking enabled (budget 2048) + tools + stream" \
+  "{\"model\":\"$MODEL\",\"max_tokens\":512,\"stream\":true,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":2048},\"tools\":[$tool],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+check_thinking "thinking adaptive + tools + stream" \
+  "{\"model\":\"$MODEL\",\"max_tokens\":512,\"stream\":true,\"thinking\":{\"type\":\"adaptive\"},\"tools\":[$tool],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
 cat <<EOF
 
