@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# zim-omp — run `omp` (oh-my-pi) against the local LiteLLM gateway.
+#
+# The sibling of zim-claude and zim-pi. omp speaks OpenAI chat/completions
+# natively, so it needs no translation layer and no secret: it authenticates to
+# the LOCAL gateway with the gateway key, and the upstream token stays inside
+# the proxy's env.
+#
+# Every argument is forwarded verbatim to `omp`. This script parses NO options
+# of its own — `zim-omp --help`, `zim-omp -p "..."` must all reach omp
+# unchanged. Configure it through environment variables only.
+#
+#   ZIM_OMP_PORT         gateway port    (default 4002)
+#   ZIM_OMP_KEY          gateway key     (default sk-claude-desktop-local)
+#   ZIM_OMP_PROFILE      omp profile     (default zim-omp)
+#   ZIM_OMP_SERVICE      proxy manager   (default <repo>/claude-desktop-integration/start-desktop-proxy.sh)
+#   ZIM_OMP_BIN          omp binary      (default: `omp` on PATH)
+#   ZIM_OMP_NO_PROXY=1     never touch the proxy
+#   ZIM_OMP_REQUIRE_PROXY=1  hard-fail if the proxy is not healthy
+#
+# Why a profile: omp reads ~/.omp/agent by default, which holds your own
+# providers, sessions, history and default model. `OMP_PROFILE` gives this route
+# an isolated agent dir at ~/.omp/profiles/<name>/agent, so the gateway config
+# cannot clobber that, and plain `omp` is unchanged. Same trick as Claude
+# Desktop's -3p profile and zim-pi's separate agent dir.
+#
+# Two files are bootstrapped there, once, and never overwritten:
+#   models.yml   the `gateway` provider (baseUrl, apiKey, model list)
+#   config.yml   modelRoles.default -> the gateway model
+# omp's own global config stays the baseline; the profile overlays it, so your
+# theme and web-search order still apply.
+
+set -euo pipefail
+
+# Self-locating, so a symlinked or relocated install still finds its sibling.
+_self_dir="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+_repo_dir="$(cd -- "$_self_dir/.." && pwd -P)"
+
+ZIM_OMP_PORT="${ZIM_OMP_PORT:-4002}"
+ZIM_OMP_KEY="${ZIM_OMP_KEY:-sk-claude-desktop-local}"
+ZIM_OMP_PROFILE="${ZIM_OMP_PROFILE:-zim-omp}"
+ZIM_OMP_SERVICE="${ZIM_OMP_SERVICE:-$_repo_dir/claude-desktop-integration/start-desktop-proxy.sh}"
+ZIM_OMP_NO_PROXY="${ZIM_OMP_NO_PROXY:-0}"
+ZIM_OMP_REQUIRE_PROXY="${ZIM_OMP_REQUIRE_PROXY:-0}"
+OMP_BIN="${ZIM_OMP_BIN:-$(command -v omp 2>/dev/null || true)}"
+
+# The profile name becomes a path segment; reject anything that could escape.
+[[ "$ZIM_OMP_PROFILE" =~ ^[A-Za-z0-9._-]+$ ]] \
+  || { printf '\033[31m[zim-omp]\033[0m invalid ZIM_OMP_PROFILE %q (letters, digits, . _ - only)\n' "$ZIM_OMP_PROFILE" >&2; exit 2; }
+
+# omp resolves a named profile to <config-root>/profiles/<name>/agent.
+ZIM_OMP_AGENT_DIR="${ZIM_OMP_AGENT_DIR:-$HOME/.omp/profiles/$ZIM_OMP_PROFILE/agent}"
+
+# All diagnostics to stderr: `zim-omp -p "x" | jq` must stay parseable.
+die()  { printf '\033[31m[zim-omp]\033[0m %s\n' "$*" >&2; exit 2; }
+warn() { printf '\033[33m[zim-omp]\033[0m %s\n' "$*" >&2; }
+info() { printf '\033[36m[zim-omp]\033[0m %s\n' "$*" >&2; }
+
+# --- preconditions -----------------------------------------------------------
+
+[[ -n "$OMP_BIN" ]] \
+  || die "omp not found on PATH. Set ZIM_OMP_BIN, or install oh-my-pi:
+       see https://github.com/can1357/oh-my-pi"
+
+[[ -x "$OMP_BIN" ]] \
+  || die "omp is not executable: $OMP_BIN"
+
+# --- bootstrap the profile ---------------------------------------------------
+
+# Written once, never overwritten: omp edits its own settings (via /model,
+# /login), and clobbering them each run would discard the user's choices.
+if [[ ! -f "$ZIM_OMP_AGENT_DIR/models.yml" ]]; then
+  info "first run — creating profile '$ZIM_OMP_PROFILE' at $ZIM_OMP_AGENT_DIR"
+  mkdir -p "$ZIM_OMP_AGENT_DIR"
+  chmod 700 "$ZIM_OMP_AGENT_DIR"
+  # apiKey names an ENV VAR, not a literal — omp resolves it at request time,
+  # so no secret is written to disk. zim-omp exports ZIM_OMP_KEY before exec.
+  cat >"$ZIM_OMP_AGENT_DIR/models.yml" <<'YML'
+providers:
+  gateway:
+    baseUrl: http://127.0.0.1:4002/v1
+    apiKey: ZIM_OMP_KEY
+    api: openai-completions
+    models:
+      - id: claude-opus-5-5
+        name: Opus 5.5 (gateway)
+        reasoning: false
+        input: [text]
+        contextWindow: 253952
+        maxTokens: 8192
+YML
+fi
+
+if [[ ! -f "$ZIM_OMP_AGENT_DIR/config.yml" ]]; then
+  cat >"$ZIM_OMP_AGENT_DIR/config.yml" <<'YML'
+modelRoles:
+  default: gateway/claude-opus-5-5
+YML
+fi
+
+# Reconcile the port in BOTH directions. Guarding this on `!= 4002` would make
+# it a one-way ratchet: the override would stick forever and the default would
+# never restore. (Same trap zim-pi's first draft fell into.)
+_want_base="http://127.0.0.1:${ZIM_OMP_PORT}/v1"
+if ! grep -qF "$_want_base" "$ZIM_OMP_AGENT_DIR/models.yml"; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$ZIM_OMP_AGENT_DIR/models.yml" "$_want_base" <<'PY'
+import re, sys
+path, want = sys.argv[1], sys.argv[2]
+with open(path) as fh:
+    text = fh.read()
+# Only rewrite baseUrl lines; leave the rest of the file byte-identical.
+text, n = re.subn(r'(?m)^(\s*baseUrl:\s*).*$', lambda m: m.group(1) + want, text)
+with open(path, "w") as fh:
+    fh.write(text)
+print(f"zim-omp: rewrote {n} baseUrl line(s)", file=sys.stderr)
+PY
+  else
+    warn "ZIM_OMP_PORT=$ZIM_OMP_PORT but python3 is missing; cannot rewrite models.yml."
+    warn "Edit $ZIM_OMP_AGENT_DIR/models.yml by hand if omp calls the wrong port."
+  fi
+fi
+
+# --- only manage a proxy when we were pointed at the local one ---------------
+
+port_answers() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+      "http://127.0.0.1:${ZIM_OMP_PORT}/health/liveliness" --max-time 2 || true)"
+  [[ "$code" == "200" ]]
+}
+
+ensure_proxy() {
+  [[ "$ZIM_OMP_NO_PROXY" == "1" ]] && return 0
+  port_answers && return 0
+
+  if [[ ! -x "$ZIM_OMP_SERVICE" ]]; then
+    warn "gateway not answering on :${ZIM_OMP_PORT}, and no service manager at"
+    warn "$ZIM_OMP_SERVICE. Start it yourself, or set ZIM_OMP_NO_PROXY=1."
+    return 1
+  fi
+
+  info "gateway not answering on :${ZIM_OMP_PORT} — starting it..."
+  # Subprocess, never `source`: start-desktop-proxy.sh's trailing `case` runs on
+  # load, and its functions call `exit`.
+  if CLAUDE_DESKTOP_PORT="$ZIM_OMP_PORT" "$ZIM_OMP_SERVICE" start; then
+    info "gateway is up."
+    return 0
+  fi
+  warn "could not start the gateway — see /tmp/litellm-desktop.log"
+  warn "continuing anyway; omp will report the connection error."
+  return 1
+}
+
+# Serialize cold starts. do_start() has a check-then-act window, so two racing
+# invocations would both spawn litellm; the second fails to bind but the health
+# poll still succeeds (the first bound it), leaving an orphan.
+if command -v flock >/dev/null 2>&1 && [[ "$ZIM_OMP_NO_PROXY" != "1" ]]; then
+  exec 9>"${TMPDIR:-/tmp}/zim-omp-gateway.lock"
+  flock 9
+  ensure_proxy || true
+  flock -u 9
+  # bash sets no close-on-exec on fds opened with `exec N>`; don't leak fd 9.
+  exec 9>&-
+else
+  ensure_proxy || true
+fi
+
+if [[ "$ZIM_OMP_REQUIRE_PROXY" == "1" ]] && ! port_answers; then
+  die "gateway is not healthy on :${ZIM_OMP_PORT} and ZIM_OMP_REQUIRE_PROXY=1."
+fi
+
+# --- hand off ----------------------------------------------------------------
+
+# Exported so models.yml's `apiKey: ZIM_OMP_KEY` resolves, and so omp picks the
+# isolated profile rather than ~/.omp/agent.
+export ZIM_OMP_KEY
+export OMP_PROFILE="$ZIM_OMP_PROFILE"
+
+# exec: no extra bash layer, so exit status, signal delivery and TTY ownership
+# all belong to omp. NOTE: exec discards EXIT traps — do not add one here.
+exec "$OMP_BIN" "$@"

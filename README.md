@@ -375,40 +375,58 @@ Windows, use the in-app dialog above.
 
 ---
 
-## pi — the same gateway, another agent
+## Other agents on the same gateway
 
-`zim-pi` runs [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) against
-the same `:4002` gateway, so pi and Claude Desktop share one upstream and one config.
+`zim-pi` and `zim-omp` point two more coding agents at the same `:4002` gateway, so
+Claude Desktop, pi and omp share one upstream and one config.
+
+| Wrapper | Agent | Install |
+|---|---|---|
+| `scripts/zim-pi` | [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
+| `scripts/zim-omp` | [omp](https://github.com/can1357/oh-my-pi) (oh-my-pi) | see the omp repo — it ships its own binary |
 
 ```bash
 ./scripts/zim-pi                              # interactive session
 ./scripts/zim-pi -p "explain this function"   # any pi flag works
+
+./scripts/zim-omp                             # interactive session
+./scripts/zim-omp -p "explain this function"  # any omp flag works
 ```
 
-Pi speaks OpenAI chat/completions natively, so it needs **no translation layer and no
-secret**: it authenticates to the local gateway with the gateway key, and the upstream
+Both speak OpenAI chat/completions natively, so they need **no translation layer and no
+secret**: they authenticate to the local gateway with the gateway key, and the upstream
 token stays inside the proxy's environment where it already lives.
 
 ```
-  pi  ──▶  LiteLLM :4002  ──▶  Token Juice  ──▶  upstream
- zim-pi       (local)                            (model)
+  pi / omp  ──▶  LiteLLM :4002  ──▶  Token Juice  ──▶  upstream
+ zim-pi/-omp         (local)                            (model)
 ```
 
-**It does not reuse `~/.pi/agent`.** That directory holds your own providers, packages
-and default model, and pi writes to it (`/model`, `/autocompact`). `zim-pi` points pi at
-its own config dir instead — `~/.local/share/zim-pi/agent`, created on first run and never
-overwritten afterwards — so the gateway route cannot clobber your setup, and plain `pi` is
-unchanged. Same separation Claude Desktop's `-3p` profile gets.
+### Neither one reuses your own agent config
 
-The generated `models.json` registers one provider, `gateway`, with `apiKey: "$ZIM_PI_KEY"`
-— an environment reference, so **no secret is written to disk**. `zim-pi` starts the
-proxy if it is down, exactly as `zim-claude` does on `:4000`.
+`pi` reads `~/.pi/agent` and `omp` reads `~/.omp/agent` by default. Both directories hold
+*your* providers, sessions, history and default model, and both agents write to them
+(`/model`, `/login`, `/autocompact`). Each wrapper therefore points its agent at an
+isolated location instead, created on first run and never overwritten afterwards:
 
-Install pi first; `zim-pi` checks for it and tells you the command if it is missing:
+| Wrapper | Isolation | Location |
+|---|---|---|
+| `zim-pi` | `PI_CODING_AGENT_DIR` | `~/.local/share/zim-pi/agent` |
+| `zim-omp` | `OMP_PROFILE` | `~/.omp/profiles/zim-omp/agent` |
 
-```bash
-npm install -g @earendil-works/pi-coding-agent
-```
+So the gateway route cannot clobber your setup, and plain `pi` / `omp` are unchanged.
+Same separation Claude Desktop's `-3p` profile gets.
+
+`zim-omp`'s profile overlays omp's global `config.yml` rather than replacing it, so your
+theme, web-search order and everything else still apply — only `modelRoles.default` and
+the `gateway` provider are added.
+
+**No secret is written to disk.** `zim-pi`'s generated `models.json` holds
+`"apiKey": "$ZIM_PI_KEY"`, and `zim-omp`'s `models.yml` holds `apiKey: ZIM_OMP_KEY` — an
+env var *name*, which is what omp resolves at request time. Either way the key stays in
+the environment.
+
+Both wrappers start the proxy if it is down, exactly as `zim-claude` does on `:4000`.
 
 ### zim-pi configuration
 
@@ -421,6 +439,19 @@ npm install -g @earendil-works/pi-coding-agent
 | `ZIM_PI_BIN` | `pi` on `PATH` | which pi to run |
 | `ZIM_PI_NO_PROXY` | `0` | set to `1` to never touch the proxy |
 | `ZIM_PI_REQUIRE_PROXY` | `0` | set to `1` to hard-fail if the gateway is down |
+
+### zim-omp configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ZIM_OMP_PORT` | `4002` | gateway port |
+| `ZIM_OMP_KEY` | `sk-claude-desktop-local` | gateway key |
+| `ZIM_OMP_PROFILE` | `zim-omp` | omp profile name (letters, digits, `. _ -`) |
+| `ZIM_OMP_AGENT_DIR` | `~/.omp/profiles/<profile>/agent` | resolved agent dir |
+| `ZIM_OMP_SERVICE` | `<repo>/claude-desktop-integration/start-desktop-proxy.sh` | proxy manager |
+| `ZIM_OMP_BIN` | `omp` on `PATH` | which omp to run |
+| `ZIM_OMP_NO_PROXY` | `0` | set to `1` to never touch the proxy |
+| `ZIM_OMP_REQUIRE_PROXY` | `0` | set to `1` to hard-fail if the gateway is down |
 
 ---
 
