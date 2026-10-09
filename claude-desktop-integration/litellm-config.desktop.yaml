@@ -20,6 +20,15 @@
 #      fields (cache_control, tool_reference, experimental beta
 #      headers) that a non-Anthropic upstream rejects with HTTP 400.
 #
+#   3. Reasoning fields must never reach Token Juice. It answers 400
+#      "Invalid request" to both `reasoning_effort` (chat/completions)
+#      and `reasoning` (responses). `drop_params` alone does not save
+#      you: litellm's /v1/messages handler has a SECOND path. When a
+#      request carries thinking={"type":"enabled"} it rewrites the
+#      model to `openai/responses/<model>` and converts thinking ->
+#      `reasoning`, and that path ignores drop_params entirely. See
+#      the litellm_params comment below for the two-part fix.
+#
 # The api_key is read from the environment; start-desktop-proxy.sh sources
 # ~/claude-source/deepseek-claude so ANTHROPIC_AUTH_TOKEN holds your
 # Token Juice key (same secret the zim-claude CLI proxy uses).
@@ -29,10 +38,27 @@ model_list:
   # accepts it and shows it as an Opus-tier model.
   - model_name: claude-opus-5-5
     litellm_params:
-      model: openai/deepseek-ai/DeepSeek-V4.1-Flash
+      # NOT `openai/...`. Two reasons, both required:
+      #
+      #   a) litellm routes every `openai/*` deployment's /v1/messages
+      #      call to the OpenAI *Responses* API (it is in the hardcoded
+      #      _RESPONSES_API_PROVIDERS set), which Token Juice rejects.
+      #      `hosted_vllm/*` is an OpenAI-compatible chat-completions
+      #      provider, so it goes to /v1/chat/completions instead.
+      #   b) the thinking rewrite described above only fires for
+      #      custom_llm_provider == "openai".
+      #
+      # additional_drop_params then removes the reasoning fields before
+      # they are serialized: litellm turns Anthropic `thinking` into
+      # `reasoning_effort` for chat targets, and Token Juice 400s on it.
+      # (drop_params does not cover these — it drops only params the
+      # target model's price-map entry does not list, and this model has
+      # no entry at all.)
+      model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
       api_base: https://api.tokenjuice.ai/v1
       api_key: os.environ/ANTHROPIC_AUTH_TOKEN
       drop_params: true
+      additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
 
   # --- Optional extra tiers -------------------------------------------------
   # Uncomment any of these to expose the SAME DeepSeek upstream under more
@@ -41,17 +67,19 @@ model_list:
   #
   # - model_name: claude-sonnet-4-5
   #   litellm_params:
-  #     model: openai/deepseek-ai/DeepSeek-V4.1-Flash
+  #     model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
   #     api_base: https://api.tokenjuice.ai/v1
   #     api_key: os.environ/ANTHROPIC_AUTH_TOKEN
   #     drop_params: true
+  #     additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
   #
   # - model_name: claude-haiku-4-5
   #   litellm_params:
-  #     model: openai/deepseek-ai/DeepSeek-V4.1-Flash
+  #     model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
   #     api_base: https://api.tokenjuice.ai/v1
   #     api_key: os.environ/ANTHROPIC_AUTH_TOKEN
   #     drop_params: true
+  #     additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
 
 litellm_settings:
   # Belt-and-braces: strip unsupported params globally too.

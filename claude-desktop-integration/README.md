@@ -34,6 +34,10 @@ Claude Desktop also imposes two rules the proxy has to obey:
 2. **Anthropic-only fields must be tolerated.** Cowork/Code send `cache_control`,
    `tool_reference`, beta headers. The upstream is OpenAI-style, so the config sets
    `drop_params: true` to avoid HTTP 400s.
+3. **`drop_params` is not enough on its own.** Reasoning fields need
+   `additional_drop_params`, and the model must not be declared `openai/*` or litellm
+   will route `/v1/messages` through the Responses API. Both are wired into
+   `litellm-config.desktop.yaml`; see Troubleshooting for the failure it prevents.
 
 Requirements met by this setup: LiteLLM ≥ v1.100.1 (for `GET /v1/models` discovery *and*
 `POST /v1/messages` on `openai/*`-registered models — see the note below) and a gateway
@@ -233,6 +237,10 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
   from the profile), so LiteLLM reaches Token Juice on its own.
 - **Anthropic-only capabilities won't apply** — 1M context, prompt-cache reuse and some
   beta headers depend on an Anthropic upstream; Opus 5.5 won't honor them.
+- **Extended thinking is stripped, not forwarded.** Token Juice rejects both
+  `reasoning_effort` and `reasoning`, so the config drops them (see Troubleshooting).
+  The app still receives `thinking` content blocks, but they are not real reasoning
+  tokens — budget them as if thinking were off.
 - Same token as `zim-claude`; rotate at Token Juice if it leaks, then restart both
   proxies.
 
@@ -242,14 +250,36 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
   `/v1/models`. A non-claude name is silently dropped by the app.
 - **Requests fail with 400.** The upstream rejected Anthropic-only fields — ensure
   `drop_params: true` is on the model entry (it is by default here).
-- **An occasional 400, `OpenAIException - {"message":"Invalid request"}`, then the session
-  recovers.** Check the traceback's URL before blaming `drop_params`: if it ends in
-  **`/v1/responses`**, LiteLLM 1.104.x sent the call to the OpenAI *Responses* API rather
-  than chat completions, and Token Juice rejected the body. That path bypasses
-  `drop_params` entirely, which is why the same request shape passes when replayed by hand
-  (both `?beta=true` and `stream:true` return 200). It is intermittent and self-healing —
-  one occurrence in forty requests, the session's next cycle succeeded. If it becomes
-  frequent, pin the litellm version rather than adding `drop_params` knobs.
+- **`400 ... OpenAIException - {"message":"Invalid request"}`, recurring on Code
+  sessions.** Two different upstream rejections share that opaque body; check the
+  traceback's URL to tell them apart.
+
+  *Ends in `/v1/responses`* — litellm's `/v1/messages` handler has a **second** path
+  besides chat/completions. Any request carrying `thinking={"type":"enabled"}` gets its
+  model rewritten to `openai/responses/<model>` (adapters/handler.py,
+  `_route_openai_thinking_to_responses_api_if_needed`), which **ignores `drop_params`
+  entirely** and hits Token Juice's Responses API. Token Juice answers 400 to the
+  `reasoning` field that path adds. This is why it looked intermittent: Cowork/Chat
+  turns don't send `thinking`, Code turns do, so it lands on whichever session is
+  reasoning — repeatedly, not randomly.
+
+  *Ends in `/v1/chat/completions`* — Token Juice also 400s on `reasoning_effort`, which
+  is what litellm converts Anthropic `thinking` into for chat targets. `drop_params`
+  does not cover it: it drops only params absent from the target model's price-map
+  entry, and `deepseek-ai/DeepSeek-V4.1-Flash` has no entry.
+
+  **Which effort values survive** matters for reproducing this. litellm buckets
+  `thinking.budget_tokens` into an effort label (512/1024 → `low`, 2048 → `medium`,
+  4096 → `high`) and Token Juice accepts only `low`, `high` and `none` — it rejects
+  `minimal`, `medium` and `xhigh`. So a session reasoning with a 2048-token budget
+  fails every turn while a 512-token one passes, on the same config. `verify.sh`'s
+  check 4 pins `budget_tokens: 2048` for exactly this reason.
+
+  The config fixes both by (a) declaring the model `hosted_vllm/*` rather than
+  `openai/*`, which keeps the call on chat/completions and out of the thinking rewrite,
+  and (b) listing the reasoning fields in `additional_drop_params`. Verify a change here
+  against the two shapes that used to fail — `thinking` + `tools`, and `thinking` +
+  `stream` — since plain requests passed all along.
 - **App can't reach the proxy.** Use `127.0.0.1` (not `localhost`) in the base URL, and
   check `./start-desktop-proxy.sh status`.
 - **Nothing changed after editing config.** `./start-desktop-proxy.sh restart`, then
