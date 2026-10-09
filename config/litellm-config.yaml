@@ -1,9 +1,92 @@
+# zim-claude · CLI proxy — LiteLLM config
+#
+#   Claude Code CLI
+#        |  POST /v1/messages   Authorization: Bearer <ANTHROPIC_AUTH_TOKEN>
+#        v
+#   LiteLLM :4100   (this config, started by start-litellm.sh)
+#        |  OpenAI-style
+#        v
+#   Token Juice  ->  DeepSeek-V4.1-Flash
+#
+# NOTE ON THE PORT. The installer's default is 4000, but on this machine
+# :4000 is held by an ssh tunnel to the remote fleet, so the profile at
+# ~/claude-source/deepseek-claude sets LITELLM_PORT=4100 and points
+# ANTHROPIC_BASE_URL at it. start-litellm.sh honours that variable.
+#
+# Two rules this config has to obey, both learned the hard way:
+#
+#   1. Reasoning fields must never reach Token Juice. It answers 400
+#      "Invalid request" to both `reasoning_effort` (chat/completions) and
+#      `reasoning` (responses). The CLI sends
+#      thinking={"type":"adaptive"} on every turn, which litellm maps to
+#      reasoning_effort=medium. `drop_params` alone does not save you:
+#      litellm's /v1/messages handler has a SECOND path — when a request
+#      carries thinking={"type":"enabled"} it rewrites the model to
+#      `openai/responses/<model>` and converts thinking -> `reasoning`,
+#      and that path ignores drop_params entirely. See litellm_params.
+#
+#   2. Answer for model names the config was never told about. Claude Code
+#      names a model per request and its bundled agents hardcode tiers
+#      (`claude-code-guide` asks for claude-haiku-5-5), which otherwise
+#      fails with `Invalid model name passed in model=claude-haiku-5-5`.
+#      The `model_name: "*"` catch-all below covers that.
+
 model_list:
-  - model_name: deepseek-v4.1-flash
+  # Catch-all: every model name resolves to the same upstream, so any agent
+  # or subagent gets the default model instead of a 400. It must sit ABOVE
+  # the named entry (litellm takes the first match) and the named entry must
+  # stay — with the wildcard alone, GET /v1/models returns an empty list.
+  - model_name: "*"
     litellm_params:
-      model: openai/deepseek-ai/DeepSeek-V4.1-Flash
+      # NOT `openai/...`. Two reasons, both required:
+      #
+      #   a) litellm routes every `openai/*` deployment's /v1/messages call
+      #      to the OpenAI *Responses* API (it is in the hardcoded
+      #      _RESPONSES_API_PROVIDERS set), which Token Juice rejects.
+      #      `hosted_vllm/*` is an OpenAI-compatible chat-completions
+      #      provider, so it goes to /v1/chat/completions instead.
+      #   b) the thinking rewrite described above only fires for
+      #      custom_llm_provider == "openai".
+      #
+      # additional_drop_params then removes the reasoning fields before they
+      # are serialized. (drop_params does not cover them — it drops only
+      # params the target model's price-map entry does not list, and this
+      # model has no entry at all.)
+      model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
       api_base: https://api.tokenjuice.ai/v1
       api_key: os.environ/ANTHROPIC_AUTH_TOKEN
+      drop_params: true
+      additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
+    # Token Juice enforces ONE 262144-token budget covering input AND output
+    # together, not a separate input window. Advertise a real ceiling or the
+    # CLI never compacts and a long session grows until the upstream refuses
+    # with `context_length, limit 262144, actual <n>` — then keeps growing,
+    # because each failed retry appends to the transcript.
+    #
+    # 230144 + 32000 = 262144 exactly. 32000 is measured, not assumed: the
+    # CLI sends max_tokens: 32000 on an ordinary turn (captured from a
+    # request). The desktop gateway uses the same invariant with its own
+    # 8192 default. NOTE: some CLI modes can emit max_tokens: 64000; a
+    # request that large would exceed the budget with this ceiling.
+    model_info:
+      max_input_tokens: 230144
+      max_output_tokens: 32000
+
+  # The name the CLI's profile actually sends (ANTHROPIC_MODEL).
+  - model_name: deepseek-v4.1-flash
+    litellm_params:
+      model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
+      api_base: https://api.tokenjuice.ai/v1
+      api_key: os.environ/ANTHROPIC_AUTH_TOKEN
+      drop_params: true
+      additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
+    model_info:
+      max_input_tokens: 230144
+      max_output_tokens: 32000
+
+litellm_settings:
+  # Belt-and-braces: strip unsupported params globally too.
+  drop_params: true
 
 # LiteLLM >= 1.104.0 refuses to boot a proxy with no master key (an
 # unauthenticated proxy relaying to a paid upstream is an open relay).
