@@ -111,6 +111,71 @@ If you'd rather not click through the UI, install the managed settings file:
 This is the same content as `managed-settings.json`. A managed profile may make the app
 show a *managed configuration* notice — that is expected.
 
+### macOS without a subscription
+
+On macOS the dialog above **cannot succeed without a Claude Code entitlement**, and that
+has nothing to do with this gateway. *Apply Changes* runs an OAuth scope-expansion
+authorize against `api.anthropic.com` before it saves anything; for an account without the
+entitlement that authorize returns `403 permission_error`, so the dialog dies with
+"Couldn't load configuration" and never reaches the write. `claude_desktop_config.json`
+and `deploymentMode` are not the problem — the save simply never happens.
+
+`/etc/claude-desktop/managed-settings.json` is **Linux-only**. The macOS build instead
+reads a *managed plist* from `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist`
+(needs root), or a user-owned **config library** under the app's `-3p` profile (does not).
+
+Use the config library — no sudo, no dialog:
+
+```bash
+./macos-managed-config.sh              # quit Claude Desktop first
+./macos-managed-config.sh --status     # show what is configured
+./macos-managed-config.sh --uninstall  # restore the most recent backup
+```
+
+Then `open -a Claude`. The app's own log confirms it
+(`~/Library/Logs/Claude-3p/main.log`):
+
+```
+[custom-3p] Credentials loaded from managed config { provider: 'gateway' }
+[custom-3p] 3P mode active { provider: 'gateway' }
+[custom-3p] inference apiHost=http://127.0.0.1:4002
+[custom-3p] Model discovery: 1 found in 115ms; picker = 1 (discovery)
+```
+
+**What it writes.** Two things, both under `~/Library/Application Support/Claude-3p/`:
+
+| File | Change |
+|---|---|
+| `configLibrary/<uuid>.json` | the gateway config (base URL, key, bearer, `static` credential) |
+| `configLibrary/_meta.json` | `appliedId` pointing at that entry |
+| `claude_desktop_config.json` | `deploymentMode` → `"3p"` |
+
+It backs all three up under `~/.local/share/zim-claude/backups/` first. `--uninstall`
+restores them.
+
+**The key spellings are not interchangeable.** The local config library validates
+*flatKeys*; the managed plist reader matches *enum names*. They agree for the inference
+keys but diverge for the sign-in toggle:
+
+| Setting | local config library | managed plist |
+|---|---|---|
+| disable Claude.ai sign-in | `disableDeploymentModeChooser` | `disableClaudeAiSignIn` |
+
+Use the wrong one and the app logs
+`Ignoring local configuration value "…": not a recognized configuration key` and ignores
+it. (The keys are ignored, not fatal — 3p mode still activates from `deploymentMode`.)
+
+**Why not the env escape hatch.** The asar exposes `CLAUDE_E2E_MANAGED_PLIST`, but it is
+gated: the app only honours environment variables when
+`globalThis.isDeveloperApprovedE2eTestHooksEnabled` is set, and the sole caller sets it to
+`GZ()`, which verifies an **ed25519 signature** against a pinned public key with a 5-minute
+expiry. Unforgeable by design. Debug/override argv switches are likewise refused at startup.
+
+**Does this need a subscription?** No. Third-party mode replaces the subscription path
+entirely; the gateway key is what authenticates, and the upstream credential stays in
+`litellm-config.desktop.yaml`. The `403`s above are what you hit when you go *through* the
+subscription dialog — this route skips it.
+
 ## Manage the proxy
 
 ```bash
@@ -154,6 +219,7 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
 | `litellm-config.desktop.yaml` | LiteLLM config: claude-named aliases, `drop_params`, master key |
 | `start-desktop-proxy.sh` | start/stop/status/logs for the `:4002` proxy |
 | `managed-settings.json` | Third-Party Inference config (flat gateway form) |
+| `macos-managed-config.sh` | macOS: write the user-owned config library (no sudo, no dialog) |
 | `install.sh` | glue: checks, permissions, optional managed settings, start, instructions |
 | `verify.sh` | endpoint + model-name checks |
 
