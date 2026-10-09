@@ -59,6 +59,18 @@ model_list:
       api_key: os.environ/ANTHROPIC_AUTH_TOKEN
       drop_params: true
       additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
+    # Token Juice enforces ONE 262144-token budget covering input AND output
+    # together, not a separate input window. Advertise a real ceiling or the
+    # app never compacts: without this, litellm reports the claude-* alias's
+    # own 1000000 and a long Code session grows until the upstream refuses
+    # with `context_length, limit 262144, actual 265777` — then keeps growing,
+    # because each failed retry appends to the transcript.
+    #
+    # 253952 + the CLI's 8192 default max_tokens = 262144 exactly. The app
+    # compacts at a percentage of this, so it turns over well before the limit.
+    model_info:
+      max_input_tokens: 253952
+      max_output_tokens: 8192
 
   # --- Optional extra tiers -------------------------------------------------
   # Uncomment any of these to expose the SAME DeepSeek upstream under more
