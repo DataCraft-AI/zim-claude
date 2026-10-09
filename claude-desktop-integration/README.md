@@ -25,7 +25,7 @@ spawns its embedded agent it *blanks* those variables and injects its own creden
 exporting them has no effect. Claude Desktop only accepts a custom endpoint through its
 **Third-Party Inference → Gateway** setting (or the equivalent managed config).
 
-Claude Desktop also imposes two rules the proxy has to obey:
+Claude Desktop also imposes three rules the proxy has to obey:
 
 1. **Model names must look Anthropic-shaped.** Any model whose name lacks `claude` /
    `anthropic` is dropped from the picker:
@@ -38,6 +38,22 @@ Claude Desktop also imposes two rules the proxy has to obey:
    `additional_drop_params`, and the model must not be declared `openai/*` or litellm
    will route `/v1/messages` through the Responses API. Both are wired into
    `litellm-config.desktop.yaml`; see Troubleshooting for the failure it prevents.
+
+**One more thing the proxy must do: answer for model names it was never told about.**
+Claude Code names a model *per request*, and its bundled agents hardcode specific tiers —
+`claude-code-guide` asks for `claude-haiku-5-5`. A gateway that defines only the name the
+picker chose answers those with
+
+```
+400: Invalid model name passed in model=claude-haiku-5-5
+```
+
+So `model_list` carries a `model_name: "*"` catch-all that resolves every name to the same
+upstream. It must sit *above* the named entry (litellm takes the first match), and the
+named entry must stay, because a wildcard on its own makes `/v1/models` return an empty
+list and the picker comes up blank. `verify.sh` check 5 covers this, using names that are
+deliberately *not* the picker's model — otherwise it would pass against a config with no
+catch-all at all.
 
 Requirements met by this setup: LiteLLM ≥ v1.100.1 (for `GET /v1/models` discovery *and*
 `POST /v1/messages` on `openai/*`-registered models — see the note below) and a gateway
@@ -198,7 +214,8 @@ subscription dialog — this route skips it.
 ```
 
 Checks the health endpoint, `GET /v1/models` (that a `claude*` model is discoverable),
-and a real `POST /v1/messages` round-trip.
+a real `POST /v1/messages` round-trip, the `thinking` + `tools` shapes that used to 400,
+and that arbitrary model names (e.g. `claude-haiku-5-5`) resolve through the catch-all.
 
 ## Configuration
 
@@ -251,7 +268,14 @@ The `:4002` gateway also serves the `zim-pi` wrapper (`../scripts/zim-pi`), whic
 ## Troubleshooting
 
 - **Picker is empty / model missing.** Confirm `./verify.sh` shows a `claude*` id from
-  `/v1/models`. A non-claude name is silently dropped by the app.
+  `/v1/models`. A non-claude name is silently dropped by the app. If the list is empty
+  altogether, the `model_name: "*"` catch-all is present without a named entry — litellm
+  then advertises nothing, even though requests still work.
+- **`400 ... Invalid model name passed in model=claude-XXXX`.** A specific name reached
+  the gateway that `model_list` does not define. Claude Code requests a model per turn and
+  its bundled agents hardcode tiers (`claude-haiku-5-5`, `claude-sonnet-5`), so this is not
+  a misconfiguration by the caller. Fix by keeping the `model_name: "*"` catch-all; check 5
+  of `verify.sh` tests exactly this.
 - **Requests fail with 400.** The upstream rejected Anthropic-only fields — ensure
   `drop_params: true` is on the model entry (it is by default here).
 - **`400 ... OpenAIException - {"message":"Invalid request"}`, recurring on Code

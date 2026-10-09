@@ -34,6 +34,30 @@
 # Token Juice key (same secret the zim-claude CLI proxy uses).
 
 model_list:
+  # Catch-all: EVERY model name resolves to the same upstream, so any agent or
+  # subagent that asks for a specific tier — the bundled `claude-code-guide`
+  # agent hardcodes `claude-haiku-5-5`, others ask for `claude-sonnet-5` — gets
+  # the default model instead of
+  #   `400: Invalid model name passed in model=claude-haiku-5-5`.
+  # Claude Code names a model per request; without this the gateway only
+  # answered for the one name the picker chose.
+  #
+  # It sits ABOVE the named entry on purpose: litellm matches the first
+  # deployment whose model_name matches, so the specific entry below stays
+  # reachable for `/v1/models` while everything else falls through to here.
+  # The wildcard alone is not enough — with only `"*"`, `/v1/models` returns
+  # an empty list and the app's picker comes up blank.
+  - model_name: "*"
+    litellm_params:
+      model: hosted_vllm/deepseek-ai/DeepSeek-V4.1-Flash
+      api_base: https://api.tokenjuice.ai/v1
+      api_key: os.environ/ANTHROPIC_AUTH_TOKEN
+      drop_params: true
+      additional_drop_params: ["reasoning_effort", "thinking", "reasoning"]
+    model_info:
+      max_input_tokens: 253952
+      max_output_tokens: 8192
+
   # DeepSeek-V4.1-Flash behind an Opus-shaped name so the Desktop picker
   # accepts it and shows it as an Opus-tier model.
   - model_name: claude-opus-5-5

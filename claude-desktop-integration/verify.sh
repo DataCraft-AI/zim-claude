@@ -80,6 +80,30 @@ check_thinking "thinking enabled (budget 2048) + tools + stream" \
 check_thinking "thinking adaptive + tools + stream" \
   "{\"model\":\"$MODEL\",\"max_tokens\":512,\"stream\":true,\"thinking\":{\"type\":\"adaptive\"},\"tools\":[$tool],\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
+# 5. Arbitrary model names. Claude Code names a model per request, and its
+#    bundled agents hardcode specific tiers — `claude-code-guide` asks for
+#    claude-haiku-5-5, which the gateway does not define by name. Without the
+#    `"*"` catch-all that is a hard 400:
+#      400: Invalid model name passed in model=claude-haiku-5-5
+#    These names are deliberately NOT the picker's model: a check that only
+#    exercises $MODEL would pass against a config with no catch-all at all.
+hdr "5. arbitrary model names resolve to the default model"
+check_name() {
+  local name="$1"
+  local c
+  c="$(curl -s -o /tmp/_verify_name.json -w '%{http_code}' -X POST "$BASE/v1/messages" \
+    -H "content-type: application/json" -H "x-api-key: $KEY" \
+    -d "{\"model\":\"$name\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+    --max-time 45 || true)"
+  if [[ "$c" == "200" ]]; then pass "$name"
+  else fail "$name — HTTP $c, no catch-all for this name"
+    head -c 300 /tmp/_verify_name.json; echo
+    echo "    Add or repair the model_name: \"*\" entry in litellm-config.desktop.yaml."
+  fi
+}
+check_name claude-haiku-5-5
+check_name claude-sonnet-5
+
 cat <<EOF
 
 $(hdr "Next: point Claude Desktop at this gateway")
