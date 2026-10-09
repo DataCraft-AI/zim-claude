@@ -227,6 +227,10 @@ LITELLM_ENV_FILE=~/claude-source/some-other-model ./start-desktop-proxy.sh resta
 | `install.sh` | glue: checks, permissions, optional managed settings, start, instructions |
 | `verify.sh` | endpoint + model-name checks |
 
+The `:4002` gateway also serves the `zim-pi` wrapper (`../scripts/zim-pi`), which points
+**pi** at the same endpoint. Pi speaks OpenAI chat/completions, so it uses the gateway's
+`/v1/chat/completions` route rather than `/v1/messages`.
+
 ## Caveats
 
 - **Enabling third-party inference signs the app out of your Claude.ai subscription

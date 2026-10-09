@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# zim-pi — run `pi` against the local LiteLLM gateway.
+#
+# The sibling of zim-claude, for @earendil-works/pi-coding-agent instead of
+# Claude Code. Pi speaks OpenAI chat/completions natively, so it needs no
+# translation layer and no secret: it authenticates to the LOCAL gateway with
+# the local gateway key, and the upstream token stays inside the proxy's env.
+#
+# Every argument is forwarded verbatim to `pi`. This script parses NO options
+# of its own — `zim-pi --help`, `zim-pi --mode json`, `zim-pi -p "..."` must all
+# reach pi unchanged. Configure it through environment variables only.
+#
+#   ZIM_PI_PORT          gateway port       (default 4002)
+#   ZIM_PI_KEY           gateway key        (default sk-claude-desktop-local)
+#   ZIM_PI_AGENT_DIR     pi config dir      (default ~/.local/share/zim-pi/agent)
+#   ZIM_PI_SERVICE       proxy manager      (default <repo>/claude-desktop-integration/start-desktop-proxy.sh)
+#   ZIM_PI_BIN           pi binary          (default: `pi` on PATH)
+#   ZIM_PI_NO_PROXY=1    never touch the proxy
+#   ZIM_PI_REQUIRE_PROXY=1  hard-fail if the proxy is not healthy
+#
+# Why a separate agent dir: pi reads ~/.pi/agent by default, which holds your
+# own providers, packages and default model. Pointing zim-pi at its own dir
+# keeps the gateway route from overwriting that, and keeps `pi` unchanged.
+# Same trick as Claude Code's -3p profile.
+
+set -euo pipefail
+
+# Self-locating, so a symlinked or relocated install still finds its sibling.
+_self_dir="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+_repo_dir="$(cd -- "$_self_dir/.." && pwd -P)"
+
+ZIM_PI_PORT="${ZIM_PI_PORT:-4002}"
+ZIM_PI_KEY="${ZIM_PI_KEY:-sk-claude-desktop-local}"
+ZIM_PI_AGENT_DIR="${ZIM_PI_AGENT_DIR:-$HOME/.local/share/zim-pi/agent}"
+ZIM_PI_SERVICE="${ZIM_PI_SERVICE:-$_repo_dir/claude-desktop-integration/start-desktop-proxy.sh}"
+ZIM_PI_NO_PROXY="${ZIM_PI_NO_PROXY:-0}"
+ZIM_PI_REQUIRE_PROXY="${ZIM_PI_REQUIRE_PROXY:-0}"
+PI_BIN="${ZIM_PI_BIN:-$(command -v pi 2>/dev/null || true)}"
+
+# All diagnostics to stderr: `zim-pi -p "x" --mode json | jq` must stay parseable.
+die()  { printf '\033[31m[zim-pi]\033[0m %s\n' "$*" >&2; exit 2; }
+warn() { printf '\033[33m[zim-pi]\033[0m %s\n' "$*" >&2; }
+info() { printf '\033[36m[zim-pi]\033[0m %s\n' "$*" >&2; }
+
+# --- preconditions -----------------------------------------------------------
+
+[[ -n "$PI_BIN" ]] \
+  || die "pi not found on PATH. Install it with:
+       npm install -g @earendil-works/pi-coding-agent
+       or set ZIM_PI_BIN."
+
+[[ -x "$PI_BIN" ]] \
+  || die "pi is not executable: $PI_BIN"
+
+# --- bootstrap the agent dir -------------------------------------------------
+
+# Written once, never overwritten: these are starting points, and `pi` itself
+# edits settings.json (via /model, /autocompact). Clobbering them on every run
+# would silently discard the user's choices.
+if [[ ! -f "$ZIM_PI_AGENT_DIR/models.json" ]]; then
+  info "first run — creating $ZIM_PI_AGENT_DIR"
+  mkdir -p "$ZIM_PI_AGENT_DIR"
+  chmod 700 "$ZIM_PI_AGENT_DIR"
+  # apiKey is an env reference, not a literal, so no secret lands on disk.
+  cat >"$ZIM_PI_AGENT_DIR/models.json" <<'JSON'
+{
+  "providers": {
+    "gateway": {
+      "baseUrl": "http://127.0.0.1:4002/v1",
+      "api": "openai-completions",
+      "apiKey": "$ZIM_PI_KEY",
+      "models": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Opus 5.5 (gateway)",
+          "input": ["text"],
+          "contextWindow": 253952,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}
+JSON
+fi
+
+if [[ ! -f "$ZIM_PI_AGENT_DIR/settings.json" ]]; then
+  cat >"$ZIM_PI_AGENT_DIR/settings.json" <<'JSON'
+{ "defaultProvider": "gateway", "defaultModel": "claude-opus-5-5" }
+JSON
+fi
+
+# The bootstrap above bakes in the default port, and pi may have been pointed
+# elsewhere by an earlier run with a different ZIM_PI_PORT. Reconcile baseUrl
+# with the requested port — in BOTH directions. Guarding this on
+# `ZIM_PI_PORT != 4002` instead would make it a one-way ratchet: the override
+# would stick forever, and the default would never restore.
+_want_base="http://127.0.0.1:${ZIM_PI_PORT}/v1"
+if ! grep -qF "\"$_want_base\"" "$ZIM_PI_AGENT_DIR/models.json"; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$ZIM_PI_AGENT_DIR/models.json" "$ZIM_PI_PORT" <<'PY'
+import json, sys
+path, port = sys.argv[1], sys.argv[2]
+with open(path) as fh:
+    data = json.load(fh)
+for provider in data.get("providers", {}).values():
+    if "baseUrl" in provider:
+        provider["baseUrl"] = f"http://127.0.0.1:{port}/v1"
+with open(path, "w") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+  else
+    warn "ZIM_PI_PORT=$ZIM_PI_PORT but python3 is missing; cannot rewrite models.json."
+    warn "Edit $ZIM_PI_AGENT_DIR/models.json by hand if pi calls the wrong port."
+  fi
+fi
+
+# --- only manage a proxy when we were pointed at the local one ---------------
+
+port_answers() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+      "http://127.0.0.1:${ZIM_PI_PORT}/health/liveliness" --max-time 2 || true)"
+  [[ "$code" == "200" ]]
+}
+
+ensure_proxy() {
+  [[ "$ZIM_PI_NO_PROXY" == "1" ]] && return 0
+  port_answers && return 0
+
+  if [[ ! -x "$ZIM_PI_SERVICE" ]]; then
+    warn "gateway not answering on :${ZIM_PI_PORT}, and no service manager at"
+    warn "$ZIM_PI_SERVICE. Start it yourself, or set ZIM_PI_NO_PROXY=1."
+    return 1
+  fi
+
+  info "gateway not answering on :${ZIM_PI_PORT} — starting it..."
+  # Subprocess, never `source`: start-desktop-proxy.sh's trailing `case` runs on
+  # load, and its functions call `exit`.
+  if CLAUDE_DESKTOP_PORT="$ZIM_PI_PORT" "$ZIM_PI_SERVICE" start; then
+    info "gateway is up."
+    return 0
+  fi
+  warn "could not start the gateway — see /tmp/litellm-desktop.log"
+  warn "continuing anyway; pi will report the connection error."
+  return 1
+}
+
+# Serialize cold starts. do_start() has a check-then-act window, so two racing
+# invocations would both spawn litellm; the second fails to bind but the health
+# poll still succeeds (the first bound it), leaving an orphan.
+if command -v flock >/dev/null 2>&1 && [[ "$ZIM_PI_NO_PROXY" != "1" ]]; then
+  exec 9>"${TMPDIR:-/tmp}/zim-pi-gateway.lock"
+  flock 9
+  ensure_proxy || true
+  flock -u 9
+  # bash sets no close-on-exec on fds opened with `exec N>`; don't leak fd 9.
+  exec 9>&-
+else
+  ensure_proxy || true
+fi
+
+if [[ "$ZIM_PI_REQUIRE_PROXY" == "1" ]] && ! port_answers; then
+  die "gateway is not healthy on :${ZIM_PI_PORT} and ZIM_PI_REQUIRE_PROXY=1."
+fi
+
+# --- hand off ----------------------------------------------------------------
+
+# Exported so models.json's "$ZIM_PI_KEY" interpolation resolves.
+export ZIM_PI_KEY
+export PI_CODING_AGENT_DIR="$ZIM_PI_AGENT_DIR"
+
+# exec: no extra bash layer, so exit status, signal delivery and TTY ownership
+# all belong to pi. NOTE: exec discards EXIT traps — do not add one here.
+exec "$PI_BIN" "$@"

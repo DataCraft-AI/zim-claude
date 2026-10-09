@@ -375,6 +375,55 @@ Windows, use the in-app dialog above.
 
 ---
 
+## pi — the same gateway, another agent
+
+`zim-pi` runs [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) against
+the same `:4002` gateway, so pi and Claude Desktop share one upstream and one config.
+
+```bash
+./scripts/zim-pi                              # interactive session
+./scripts/zim-pi -p "explain this function"   # any pi flag works
+```
+
+Pi speaks OpenAI chat/completions natively, so it needs **no translation layer and no
+secret**: it authenticates to the local gateway with the gateway key, and the upstream
+token stays inside the proxy's environment where it already lives.
+
+```
+  pi  ──▶  LiteLLM :4002  ──▶  Token Juice  ──▶  upstream
+ zim-pi       (local)                            (model)
+```
+
+**It does not reuse `~/.pi/agent`.** That directory holds your own providers, packages
+and default model, and pi writes to it (`/model`, `/autocompact`). `zim-pi` points pi at
+its own config dir instead — `~/.local/share/zim-pi/agent`, created on first run and never
+overwritten afterwards — so the gateway route cannot clobber your setup, and plain `pi` is
+unchanged. Same separation Claude Desktop's `-3p` profile gets.
+
+The generated `models.json` registers one provider, `gateway`, with `apiKey: "$ZIM_PI_KEY"`
+— an environment reference, so **no secret is written to disk**. `zim-pi` starts the
+proxy if it is down, exactly as `zim-claude` does on `:4000`.
+
+Install pi first; `zim-pi` checks for it and tells you the command if it is missing:
+
+```bash
+npm install -g @earendil-works/pi-coding-agent
+```
+
+### zim-pi configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ZIM_PI_PORT` | `4002` | gateway port |
+| `ZIM_PI_KEY` | `sk-claude-desktop-local` | gateway key |
+| `ZIM_PI_AGENT_DIR` | `~/.local/share/zim-pi/agent` | pi config dir |
+| `ZIM_PI_SERVICE` | `<repo>/claude-desktop-integration/start-desktop-proxy.sh` | proxy manager |
+| `ZIM_PI_BIN` | `pi` on `PATH` | which pi to run |
+| `ZIM_PI_NO_PROXY` | `0` | set to `1` to never touch the proxy |
+| `ZIM_PI_REQUIRE_PROXY` | `0` | set to `1` to hard-fail if the gateway is down |
+
+---
+
 ## The proxy
 
 `start-litellm.sh` manages it:
